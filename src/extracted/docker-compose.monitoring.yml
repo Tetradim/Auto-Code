@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  analyzer:
+    build:
+      context: ./analyzer
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=bracket_bot
+      - METRICS_PORT=8002
+      - ORB_MINUTES=15
+    depends_on:
+      - mongodb
+    networks:
+      - set-trader-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - set-trader-network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - set-trader-network
+
+networks:
+  set-trader-network:
+    external: true
+    name: set-trader_default
+
+volumes:
+  grafana_data:
