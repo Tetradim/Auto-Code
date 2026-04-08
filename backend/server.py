@@ -4,6 +4,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from datetime import datetime
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter
@@ -154,6 +155,73 @@ async def remove_ticker(symbol: str):
     if scheduler:
         scheduler.remove_ticker(symbol.upper())
     return {"message": f"Removed {symbol.upper()} from watch list"}
+
+
+@api_router.put("/tickers/{symbol}/config")
+async def update_ticker_config(symbol: str, config: dict):
+    """Update ticker metric configuration"""
+    if not scheduler:
+        return {"error": "Scheduler not initialized"}
+    
+    symbol = symbol.upper()
+    
+    # Store config in MongoDB
+    try:
+        result = await db.ticker_configs.update_one(
+            {"symbol": symbol},
+            {"$set": {
+                "symbol": symbol,
+                "metrics": config.get("metrics", {}),
+                "updated_at": datetime.now()
+            }},
+            upsert=True
+        )
+        
+        # Update scheduler's metric tracking
+        if hasattr(scheduler, 'ticker_configs'):
+            scheduler.ticker_configs[symbol] = config.get("metrics", {})
+        else:
+            scheduler.ticker_configs = {symbol: config.get("metrics", {})}
+        
+        return {
+            "message": f"Updated config for {symbol}",
+            "config": config,
+            "modified": result.modified_count > 0
+        }
+    except Exception as e:
+        logger.error(f"Failed to update ticker config: {e}")
+        return {"error": str(e)}
+
+
+@api_router.get("/tickers/{symbol}/config")
+async def get_ticker_config(symbol: str):
+    """Get ticker metric configuration"""
+    symbol = symbol.upper()
+    
+    try:
+        config = await db.ticker_configs.find_one({"symbol": symbol})
+        if config:
+            return {
+                "symbol": symbol,
+                "metrics": config.get("metrics", {}),
+                "updated_at": config.get("updated_at")
+            }
+        else:
+            # Return default config
+            return {
+                "symbol": symbol,
+                "metrics": {
+                    "orb": True,
+                    "atr": True,
+                    "signal": True,
+                    "volume": True,
+                    "price": True,
+                    "breakouts": True
+                }
+            }
+    except Exception as e:
+        logger.error(f"Failed to get ticker config: {e}")
+        return {"error": str(e)}
 
 
 @api_router.post("/control/pause")

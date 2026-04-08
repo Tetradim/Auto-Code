@@ -36,8 +36,19 @@ class ApiClient {
     return data;
   }
 
-  async removeTicker(symbol: string) {
+  async def removeTicker(symbol: string) {
     const { data } = await this.client.delete(`/api/tickers/${symbol}`);
+    return data;
+  }
+
+  // Ticker Configuration
+  async updateTickerConfig(symbol: string, config: any) {
+    const { data } = await this.client.put(`/api/tickers/${symbol}/config`, config);
+    return data;
+  }
+
+  async getTickerConfig(symbol: string) {
+    const { data } = await this.client.get(`/api/tickers/${symbol}/config`);
     return data;
   }
 

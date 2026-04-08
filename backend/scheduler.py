@@ -52,6 +52,9 @@ class EvaluationScheduler:
         # Track previous prices for momentum calculation
         self.prev_prices = {}
         
+        # Track metric toggles per ticker
+        self.ticker_configs = {}
+        
         logger.info(f"Scheduler initialized with {len(self.active_tickers)} tickers")
     
     async def evaluate_ticker(self, symbol: str):

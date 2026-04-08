@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 export const TradingOverview: React.FC = () => {
   const { tickers, stats, setTickers, setStats } = useStore();
   const [breakoutData, setBreakoutData] = useState<any[]>([]);
+  const [tickerConfigs, setTickerConfigs] = useState<Record<string, any>>({});
 
   useEffect(() => {
     loadData();
@@ -36,6 +37,35 @@ export const TradingOverview: React.FC = () => {
       ]);
     } catch (error) {
       console.error('Failed to load data:', error);
+    }
+  };
+
+  const handleMetricToggle = async (symbol: string, metric: string) => {
+    const currentConfig = tickerConfigs[symbol] || {
+      orb: true,
+      atr: true,
+      signal: true,
+      volume: true,
+      price: true,
+      breakouts: true,
+    };
+
+    const newConfig = {
+      ...currentConfig,
+      [metric]: !currentConfig[metric],
+    };
+
+    setTickerConfigs({
+      ...tickerConfigs,
+      [symbol]: newConfig,
+    });
+
+    // Update backend
+    try {
+      await api.updateTickerConfig(symbol, { metrics: newConfig });
+      console.log(`Updated ${symbol} config:`, newConfig);
+    } catch (error) {
+      console.error(`Failed to update ${symbol} config:`, error);
     }
   };
 
@@ -107,8 +137,10 @@ export const TradingOverview: React.FC = () => {
               orbLow={ticker.orb_levels?.['15m']?.low}
               atr={ticker.atr}
               volumeRatio={ticker.volume_ratio}
+              metricToggles={tickerConfigs[ticker.symbol]}
               onToggle={() => console.log('Toggle', ticker.symbol)}
               onConfigure={() => console.log('Configure', ticker.symbol)}
+              onMetricToggle={(metric) => handleMetricToggle(ticker.symbol, metric)}
             />
           ))}
         </div>
