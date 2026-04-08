@@ -1,0 +1,207 @@
+{
+  "dashboard": {
+    "title": "Trading Overview",
+    "uid": "trading-overview",
+    "tags": ["sentinel-edge", "trading"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Engine State",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "edge_engine_running",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "STOPPED", "color": "red"},
+              {"type": "value", "value": "1", "text": "RUNNING", "color": "green"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "Active Tickers",
+        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "ticker_active_count",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Total Trades",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "sum(edge_decision_total)",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 4,
+        "type": "gauge",
+        "title": "Win Rate %",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "avg(edge_win_rate)",
+          "refId": "A"
+        }],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 50, "color": "yellow"},
+                {"value": 70, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "type": "timeseries",
+        "title": "ORB Breakouts (rate/min)",
+        "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "sum(rate(edge_orb_breakouts_total[1m])) by (symbol, direction)",
+          "refId": "A",
+          "legendFormat": "{{symbol}} - {{direction}}"
+        }],
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right"}
+        }
+      },
+      {
+        "id": 6,
+        "type": "timeseries",
+        "title": "Signal Strength by Ticker",
+        "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "edge_signal_strength",
+          "refId": "A",
+          "legendFormat": "{{symbol}}"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "fillOpacity": 20,
+              "gradientMode": "hue"
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "type": "table",
+        "title": "Ticker Summary",
+        "gridPos": {"x": 0, "y": 12, "w": 24, "h": 8},
+        "targets": [
+          {
+            "expr": "edge_signal_strength",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          },
+          {
+            "expr": "edge_orb_high",
+            "refId": "B",
+            "format": "table",
+            "instant": true
+          },
+          {
+            "expr": "edge_orb_low",
+            "refId": "C",
+            "format": "table",
+            "instant": true
+          },
+          {
+            "expr": "current_price",
+            "refId": "D",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge"
+          },
+          {
+            "id": "organize",
+            "options": {
+              "renameByName": {
+                "symbol": "Symbol",
+                "Value #A": "Signal",
+                "Value #B": "ORB High",
+                "Value #C": "ORB Low",
+                "Value #D": "Price"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "type": "stat",
+        "title": "Consecutive Loss Streak",
+        "gridPos": {"x": 0, "y": 20, "w": 24, "h": 4},
+        "targets": [{
+          "expr": "edge_consecutive_losses",
+          "refId": "A",
+          "legendFormat": "{{symbol}}"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background",
+          "orientation": "horizontal"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 3, "color": "yellow"},
+                {"value": 5, "color": "red"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "dashboard": {
+    "title": "Broker Health",
+    "uid": "broker-health",
+    "tags": ["sentinel-edge", "broker"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Circuit Breaker State",
+        "gridPos": {"x": 0, "y": 0, "w": 8, "h": 6},
+        "targets": [{
+          "expr": "broker_circuit_state",
+          "refId": "A",
+          "legendFormat": "{{broker_id}}"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "CLOSED", "color": "green"},
+              {"type": "value", "value": "1", "text": "HALF_OPEN", "color": "yellow"},
+              {"type": "value", "value": "2", "text": "OPEN", "color": "red"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "yellow"},
+                {"value": 2, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "type": "gauge",
+        "title": "Failure Rate %",
+        "gridPos": {"x": 8, "y": 0, "w": 8, "h": 6},
+        "targets": [{
+          "expr": "broker_failure_rate",
+          "refId": "A",
+          "legendFormat": "{{broker_id}}"
+        }],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 20, "color": "yellow"},
+                {"value": 50, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Total API Calls",
+        "gridPos": {"x": 16, "y": 0, "w": 8, "h": 6},
+        "targets": [{
+          "expr": "sum(edge_api_calls_total)",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 4,
+        "type": "timeseries",
+        "title": "API Success vs Failure Rate",
+        "gridPos": {"x": 0, "y": 6, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(edge_api_calls_total{status=\"success\"}[1m]))",
+            "refId": "A",
+            "legendFormat": "Success"
+          },
+          {
+            "expr": "sum(rate(edge_api_calls_total{status=\"failure\"}[1m]))",
+            "refId": "B",
+            "legendFormat": "Failure"
+          },
+          {
+            "expr": "sum(rate(edge_api_calls_total{status=\"timeout\"}[1m]))",
+            "refId": "C",
+            "legendFormat": "Timeout"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "fillOpacity": 30,
+              "stacking": {"mode": "normal"}
+            }
+          },
+          "overrides": [
+            {"matcher": {"id": "byName", "options": "Failure"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+            {"matcher": {"id": "byName", "options": "Timeout"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]}
+          ]
+        }
+      },
+      {
+        "id": 5,
+        "type": "heatmap",
+        "title": "API Latency Distribution",
+        "gridPos": {"x": 12, "y": 6, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "sum(rate(edge_api_latency_seconds_bucket[5m])) by (le)",
+          "refId": "A",
+          "format": "heatmap"
+        }]
+      },
+      {
+        "id": 6,
+        "type": "timeseries",
+        "title": "API Latency Percentiles",
+        "gridPos": {"x": 0, "y": 14, "w": 24, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(edge_api_latency_seconds_bucket[5m])) by (le))",
+            "refId": "A",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(edge_api_latency_seconds_bucket[5m])) by (le))",
+            "refId": "B",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(edge_api_latency_seconds_bucket[5m])) by (le))",
+            "refId": "C",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,151 @@
+groups:
+  - name: sentinel_edge_alerts
+    interval: 30s
+    rules:
+      # ════════════════════════════════════════════════════════════════
+      # CIRCUIT BREAKER ALERTS
+      # ════════════════════════════════════════════════════════════════
+      
+      - alert: CircuitBreakerOpen
+        expr: broker_circuit_state{broker_id="pulse"} == 2
+        for: 30s
+        labels:
+          severity: critical
+          component: broker
+        annotations:
+          summary: "Circuit breaker is OPEN for {{ $labels.broker_id }}"
+          description: "The circuit breaker for {{ $labels.broker_id }} has been open for 30 seconds, indicating persistent failures in API calls."
+      
+      - alert: CircuitBreakerHalfOpen
+        expr: broker_circuit_state{broker_id="pulse"} == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: broker
+        annotations:
+          summary: "Circuit breaker is HALF_OPEN for {{ $labels.broker_id }}"
+          description: "The circuit breaker is testing if {{ $labels.broker_id }} has recovered."
+      
+      # ════════════════════════════════════════════════════════════════
+      # TRADING ALERTS
+      # ════════════════════════════════════════════════════════════════
+      
+      - alert: AutoStopTriggered
+        expr: increase(edge_decision_total{decision="emergency_exit"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          component: trading
+        annotations:
+          summary: "Auto-stop triggered for {{ $labels.symbol }}"
+          description: "Emergency exit decision made for {{ $labels.symbol }} due to excessive losses or risk."
+      
+      - alert: ConsecutiveLossesWarning
+        expr: edge_consecutive_losses >= 3
+        for: 1m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "{{ $labels.symbol }} has {{ $value }} consecutive losses"
+          description: "Ticker {{ $labels.symbol }} has hit {{ $value }} consecutive losses. Risk management may trigger soon."
+      
+      - alert: ConsecutiveLossesCritical
+        expr: edge_consecutive_losses >= 5
+        for: 0s
+        labels:
+          severity: critical
+          component: trading
+        annotations:
+          summary: "CRITICAL: {{ $labels.symbol }} has {{ $value }} consecutive losses"
+          description: "Ticker {{ $labels.symbol }} has {{ $value }} consecutive losses. Immediate action required."
+      
+      # ════════════════════════════════════════════════════════════════
+      # BROKER HEALTH ALERTS
+      # ════════════════════════════════════════════════════════════════
+      
+      - alert: BrokerHighFailureRate
+        expr: broker_failure_rate > 20
+        for: 2m
+        labels:
+          severity: warning
+          component: broker
+        annotations:
+          summary: "High failure rate for {{ $labels.broker_id }}: {{ $value }}%"
+          description: "Broker {{ $labels.broker_id }} has a failure rate of {{ $value }}% over the last 2 minutes."
+      
+      - alert: BrokerCriticalFailureRate
+        expr: broker_failure_rate > 50
+        for: 1m
+        labels:
+          severity: critical
+          component: broker
+        annotations:
+          summary: "CRITICAL failure rate for {{ $labels.broker_id }}: {{ $value }}%"
+          description: "Broker {{ $labels.broker_id }} has a critical failure rate of {{ $value }}%. Service degradation likely."
+      
+      # ════════════════════════════════════════════════════════════════
+      # ENGINE HEALTH ALERTS
+      # ════════════════════════════════════════════════════════════════
+      
+      - alert: EngineNotRunning
+        expr: edge_engine_running == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: engine
+        annotations:
+          summary: "Sentinel Edge engine is not running"
+          description: "The main evaluation engine has stopped. No ticker analysis is being performed."
+      
+      # ════════════════════════════════════════════════════════════════
+      # DRAWDOWN ALERTS
+      # ════════════════════════════════════════════════════════════════
+      
+      - alert: DrawdownWarning
+        expr: ticker_drawdown_percent > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "{{ $labels.symbol }} drawdown at {{ $value }}%"
+          description: "Ticker {{ $labels.symbol }} has a drawdown of {{ $value }}%, approaching risk threshold."
+      
+      - alert: DrawdownCritical
+        expr: ticker_drawdown_percent > 10
+        for: 1m
+        labels:
+          severity: critical
+          component: risk
+        annotations:
+          summary: "CRITICAL drawdown for {{ $labels.symbol }}: {{ $value }}%"
+          description: "Ticker {{ $labels.symbol }} has exceeded maximum drawdown threshold at {{ $value }}%."
+      
+      # ════════════════════════════════════════════════════════════════
+      # ORB BREAKOUT ALERTS
+      # ════════════════════════════════════════════════════════════════
+      
+      - alert: OrbBreakoutDetected
+        expr: increase(edge_orb_breakouts_total[1m]) > 0
+        for: 0s
+        labels:
+          severity: info
+          component: signals
+        annotations:
+          summary: "ORB breakout detected: {{ $labels.symbol }} ({{ $labels.direction }})"
+          description: "{{ $labels.symbol }} broke {{ $labels.direction }} on {{ $labels.timeframe }} timeframe."
+      
+      # ════════════════════════════════════════════════════════════════
+      # SIDECAR AVAILABILITY
+      # ════════════════════════════════════════════════════════════════
+      
+      - alert: SidecarDown
+        expr: up{job="sentinel-edge"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: availability
+        annotations:
+          summary: "Sentinel Edge sidecar is down"
+          description: "The Sentinel Edge service is not responding to health checks."

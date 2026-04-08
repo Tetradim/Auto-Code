@@ -1,0 +1,304 @@
+{
+  "dashboard": {
+    "title": "Market Coverage",
+    "uid": "market-coverage",
+    "tags": ["sentinel-edge", "markets"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "NYSE/NASDAQ",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "market_open_status{market=\"NYSE\"}",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "🔴 CLOSED"},
+              {"type": "value", "value": "1", "text": "🟢 OPEN"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "LSE",
+        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "market_open_status{market=\"LSE\"}",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "🔴 CLOSED"},
+              {"type": "value", "value": "1", "text": "🟢 OPEN"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "TSE",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "market_open_status{market=\"TSE\"}",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "🔴 CLOSED"},
+              {"type": "value", "value": "1", "text": "🟢 OPEN"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "type": "stat",
+        "title": "HKEX",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "market_open_status{market=\"HKEX\"}",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "🔴 CLOSED"},
+              {"type": "value", "value": "1", "text": "🟢 OPEN"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "type": "stat",
+        "title": "SSE",
+        "gridPos": {"x": 0, "y": 4, "w": 8, "h": 4},
+        "targets": [{
+          "expr": "market_open_status{market=\"SSE\"}",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "🔴 CLOSED"},
+              {"type": "value", "value": "1", "text": "🟢 OPEN"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "type": "stat",
+        "title": "BSE",
+        "gridPos": {"x": 8, "y": 4, "w": 8, "h": 4},
+        "targets": [{
+          "expr": "market_open_status{market=\"BSE\"}",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "🔴 CLOSED"},
+              {"type": "value", "1", "text": "🟢 OPEN"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "type": "stat",
+        "title": "NASDAQ",
+        "gridPos": {"x": 16, "y": 4, "w": 8, "h": 4},
+        "targets": [{
+          "expr": "market_open_status{market=\"NASDAQ\"}",
+          "refId": "A"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "🔴 CLOSED"},
+              {"type": "value", "1", "text": "🟢 OPEN"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "type": "stat",
+        "title": "Lunch Break Flags",
+        "gridPos": {"x": 0, "y": 8, "w": 24, "h": 4},
+        "targets": [
+          {
+            "expr": "market_lunch_break{market=\"TSE\"}",
+            "refId": "A",
+            "legendFormat": "TSE"
+          },
+          {
+            "expr": "market_lunch_break{market=\"HKEX\"}",
+            "refId": "B",
+            "legendFormat": "HKEX"
+          },
+          {
+            "expr": "market_lunch_break{market=\"SSE\"}",
+            "refId": "C",
+            "legendFormat": "SSE"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background",
+          "orientation": "horizontal"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "0", "text": "Trading"},
+              {"type": "value", "value": "1", "text": "🍱 LUNCH"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "yellow"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "type": "bargauge",
+        "title": "Minutes to Close",
+        "gridPos": {"x": 0, "y": 12, "w": 24, "h": 6},
+        "targets": [{
+          "expr": "market_minutes_to_close > 0",
+          "refId": "A",
+          "legendFormat": "{{market}}"
+        }],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "m",
+            "max": 390,
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 60, "color": "yellow"},
+                {"value": 180, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "type": "timeseries",
+        "title": "24-Hour Market Session Timeline",
+        "gridPos": {"x": 0, "y": 18, "w": 24, "h": 8},
+        "targets": [{
+          "expr": "market_open_status",
+          "refId": "A",
+          "legendFormat": "{{market}}"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "fillOpacity": 70,
+              "lineWidth": 0,
+              "stacking": {"mode": "none"}
+            }
+          }
+        },
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right"}
+        }
+      }
+    ]
+  }
+}
