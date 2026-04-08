@@ -36,7 +36,7 @@ class ApiClient {
     return data;
   }
 
-  async def removeTicker(symbol: string) {
+  async removeTicker(symbol: string) {
     const { data } = await this.client.delete(`/api/tickers/${symbol}`);
     return data;
   }
@@ -60,7 +60,7 @@ class ApiClient {
 
   // Markets
   async getMarkets() {
-    const { data} = await this.client.get('/api/markets');
+    const { data } = await this.client.get('/api/markets');
     return data;
   }
 
