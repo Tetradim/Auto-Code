@@ -14,6 +14,12 @@ export default defineConfig({
     host: '0.0.0.0',
     strictPort: false,
     cors: true,
-    proxy: {},
+    allowedHosts: [
+      'pulse-sentinel-1.cluster-5.preview.emergentcf.cloud',
+      'pulse-sentinel-1.preview.emergentagent.com',
+      'localhost',
+      '.preview.emergentcf.cloud',
+      '.preview.emergentagent.com',
+    ],
   },
 });
