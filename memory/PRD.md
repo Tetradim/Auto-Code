@@ -82,6 +82,12 @@ Broker Health, P&L Tracking, and Market Coverage.
 - TypeScript `TickerData` type updated with `last_decision`, `confidence`, `last_updated` ✅
 - P1 test suite: 39 new tests (100% pass); total 79/79 tests ✅
 
+### Session 4 (2026-04-09) — Decision Feed + Ticker Management
+- **Live Decision Feed** (`DecisionFeed.tsx`): scrollable log panel showing non-HOLD decisions (BUY/STOP/EXIT/TIGHTEN/TRAIL) with color-coded badges, signal bars, prices, time-ago; AnimatePresence transitions; mock mode auto-populates with simulated decisions ✅
+- **Add/Remove Tickers**: input + Add button above ticker grid; red trash icon on every TickerCard; input validation (1–6 letters only); works in both live and mock mode; empty state shown when all tickers removed ✅
+- **Backend `/api/decisions`**: returns up to 50 most recent non-HOLD decisions (newest first) ✅
+- Total test coverage: 95/95 (16 new + 79 regression) ✅
+
 ## Key API Endpoints
 | Method | Path | Description |
 |--------|------|-------------|
