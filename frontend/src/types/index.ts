@@ -15,6 +15,7 @@ export interface TickerData {
   last_decision?: string;
   confidence?: number;
   last_updated?: string;
+  volume_zscore?: number;
 }
 
 export interface OrbLevel {

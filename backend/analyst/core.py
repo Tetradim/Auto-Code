@@ -80,10 +80,23 @@ class SentinelEdge:
         """Wire the existing EvaluationScheduler.
         Replaces the scheduler's own CorrelationEngine with this one so both
         the main loop and SentinelEdge share a single event window.
+        Also loads and registers all discovered BaseSignal plugins.
         """
         self._scheduler = scheduler
         scheduler.correlation = self.correlation
-        logger.info("SentinelEdge wired to EvaluationScheduler")
+
+        # Auto-discover and register BaseSignal plugins
+        try:
+            from analyst.signals import discover_plugins
+            scheduler.signal_plugins = discover_plugins()
+        except Exception as exc:
+            logger.warning("Plugin discovery failed: %s", exc)
+            scheduler.signal_plugins = []
+
+        logger.info(
+            "SentinelEdge wired to EvaluationScheduler (%d plugin(s) loaded)",
+            len(scheduler.signal_plugins),
+        )
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 

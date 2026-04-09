@@ -19,6 +19,7 @@ from metrics import (
     ticker_evaluation_total,
     ticker_active_count,
     edge_eval_duration,
+    analyst_plugin_signals_total,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,9 @@ class EvaluationScheduler:
 
         # Recent non-HOLD decisions for the decision feed (newest first)
         self.recent_decisions: list = []
+
+        # Signal plugins (BaseSignal subclasses loaded by SentinelEdge)
+        self.signal_plugins: list = []
 
         # Correlation engine (async, Motor-backed)
         import os
@@ -130,6 +134,9 @@ class EvaluationScheduler:
             self.signals.update_avg_volume(symbol, volume)
             volume_ratio = self.signals.get_volume_ratio(symbol, volume)
 
+            # Volume anomaly Z-score (rolling 60-s window)
+            volume_zscore = self.signals.compute_volume_zscore(symbol, volume)
+
             orb_high: Optional[float] = None
             orb_low: Optional[float] = None
             if 15 in orb_levels and orb_levels[15].is_valid:
@@ -144,6 +151,7 @@ class EvaluationScheduler:
                 volume_ratio=volume_ratio,
                 atr=atr,
                 price_change_pct=price_change_pct,
+                volume_zscore=volume_zscore,
             )
 
             # ── Decision ─────────────────────────────────────────────────
@@ -227,10 +235,47 @@ class EvaluationScheduler:
                 "trend": trend.name.lower(),
                 "atr": round(atr, 4),
                 "volume_ratio": round(volume_ratio, 4),
+                "volume_zscore": round(volume_zscore, 3),
                 "last_decision": decision.value,
                 "confidence": round(confidence, 3),
                 "last_updated": now.isoformat(),
             }
+
+            # ── BaseSignal plugins ────────────────────────────────────────
+            if self.signal_plugins and ohlcv_data is not None and not ohlcv_data.empty:
+                market_data = {
+                    "ohlcv": ohlcv_data,
+                    "price": price,
+                    "volume": volume,
+                    "atr": atr,
+                    "volume_ratio": volume_ratio,
+                    "volume_zscore": volume_zscore,
+                    "signal_strength": signal_strength,
+                    "trend": trend.name.lower(),
+                    "orb_high": orb_high,
+                    "orb_low": orb_low,
+                }
+                for plugin in self.signal_plugins:
+                    try:
+                        plugin_signal = await plugin.generate(symbol, market_data)
+                        if plugin_signal and plugin_signal.action in ("BUY", "SELL"):
+                            await self.correlation.record_signal(
+                                symbol,
+                                plugin_signal.action,
+                                plugin_signal.confidence,
+                            )
+                            analyst_plugin_signals_total.labels(
+                                plugin=plugin.name,
+                                symbol=symbol,
+                                action=plugin_signal.action,
+                            ).inc()
+                            logger.info(
+                                "🔌 Plugin [%s] → %s %s conf=%.2f: %s",
+                                plugin.name, plugin_signal.action, symbol,
+                                plugin_signal.confidence, plugin_signal.reason,
+                            )
+                    except Exception as pe:
+                        logger.debug("Plugin %s error for %s: %s", plugin.name, symbol, pe)
 
             # ── MongoDB ORB persistence ───────────────────────────────────
             await self._persist_orb(symbol, orb_levels, now)

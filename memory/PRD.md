@@ -107,7 +107,15 @@ Broker Health, P&L Tracking, and Market Coverage.
 - **`prometheus/rules.yml`**: added `StrongCorrelationCluster`, `BearishClusterOverride`, `HighPulseOverrideRate` (11 total alert rules) ✅
 - **`README.md`**: full rewrite — architecture diagram, communication channel table, analyst/ package reference, API reference, pluggable strategy example, MongoDB command bus docs, env vars, Docker quick-start ✅
 
-### Session 8 (2026-04-09) — Advanced Alertmanager + Routing Tree
+### Session 9 (2026-04-09) — VWAP Plugin + Volume Z-Score
+- **`analyst/signals/custom/vwap_breakout.py`**: full `BaseSignal` plugin — computes VWAP from OHLCV (typical_price × volume cumsum), BUY above VWAP+buffer with vol_ratio≥1.25, SELL below VWAP−buffer; confidence scales with volume ratio + z-score boost; ATR floor avoids flat-market noise; metadata includes vwap/deviation_pct/volume_zscore ✅
+- **`analyst/signals/__init__.py`**: `discover_plugins()` auto-discovery — scans `analyst/signals/custom/`, imports all `.py` files, finds `BaseSignal` subclasses, returns instantiated list ✅
+- **`backend/signals.py`**: Volume Anomaly Z-Score — `compute_volume_zscore(symbol, volume)` using 60-sample rolling deque; added as Section 5 to `evaluate_signal()` (z>2.5 boosts ±1.5pts, z>3.5 boosts ±2pts, z<-1.5 dampens 25%); `edge_volume_zscore` Prometheus gauge ✅
+- **`backend/metrics.py`**: added `edge_volume_zscore` Gauge and `analyst_plugin_signals_total` Counter ✅
+- **`backend/scheduler.py`**: `signal_plugins` list; z-score computed before signal evaluation; plugins run after main eval with shared market_data dict; plugin signals fed into CorrelationEngine; `analyst_plugin_signals_total` counter incremented; `volume_zscore` exposed in `/api/tickers` ✅
+- **`analyst/core.py`**: `set_scheduler()` now calls `discover_plugins()` and registers them — confirmed in logs: "1 plugin(s) loaded" ✅
+
+## Key API Endpoints
 - **`prometheus/alertmanager.yml`**: full advanced routing tree — 4 receivers (`pulse-override`, `trading-team`, `regime-alerts`, `default`); Slack + Telegram + Echo webhook; `--config.expand-env` for secrets; smart inhibit rules (critical silences warning for same direction, cluster silences individual symbol breakouts); time-based muting (outside 9:30–16:00 ET weekdays) ✅
 - **`prometheus/rules.yml`**: 3 new alert rules — `CriticalBearishCorrelation` (bearish clusters ≥3 for 90s, action=global_risk_reduction), `BullishMomentumRegime` (bullish ORB rate >8/5m for 3m, action=increase_aggression), `SingleSymbolBreakout` (isolated non-index breakout, severity=info) ✅
 - **`analyst/webhook/alert_handler.py`**: 2 new endpoints — `/api/webhook/pulse-override` (dedicated critical override handler with full action→command mapping: tighten/relax/pause/exit) + `/api/webhook/general` (general logging receiver) ✅
