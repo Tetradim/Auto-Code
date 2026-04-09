@@ -1,116 +1,163 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, TrendingUp, Zap, CheckCircle, XCircle } from 'lucide-react';
+import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play } from 'lucide-react';
+import { TradingOverview } from './components/dashboards/TradingOverview';
+import { BrokerHealth } from './components/dashboards/BrokerHealth';
+import { PnLTracking } from './components/dashboards/PnLTracking';
+import { MarketCoverage } from './components/dashboards/MarketCoverage';
 import { useStore } from './store/useStore';
+import { api } from './lib/api';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
+
+const TABS = [
+  { id: 'overview', label: 'Trading Overview', icon: Activity },
+  { id: 'broker', label: 'Broker Health', icon: Shield },
+  { id: 'pnl', label: 'P&L Tracking', icon: TrendingUp },
+  { id: 'markets', label: 'Market Coverage', icon: Globe },
+] as const;
+
+type TabId = (typeof TABS)[number]['id'];
 
 export default function App() {
   const { connected, setConnected } = useStore();
-  const [stats, setStats] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [schedulerPaused, setSchedulerPaused] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     checkBackend();
+    const interval = setInterval(checkBackend, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const checkBackend = async () => {
     try {
-      console.log('🔍 Fetching from:', `${BACKEND_URL}/api/health`);
-      const response = await fetch(`${BACKEND_URL}/api/health`);
-      const health = await response.json();
+      const health = await fetch(`${BACKEND_URL}/api/health`).then((r) => r.json());
       setConnected(true);
-      setStats(health);
+      setSchedulerPaused(health.paused ?? false);
       setLoading(false);
-      console.log('✅ Backend data:', health);
-    } catch (error) {
-      console.error('❌ Fetch Error:', error);
+    } catch {
       setConnected(false);
       setLoading(false);
     }
   };
 
+  const toggleScheduler = async () => {
+    try {
+      if (schedulerPaused) {
+        await api.resumeScheduler();
+        setSchedulerPaused(false);
+      } else {
+        await api.pauseScheduler();
+        setSchedulerPaused(true);
+      }
+    } catch (err) {
+      console.error('Failed to toggle scheduler:', err);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-950 p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+    <div className="min-h-screen bg-gray-950 text-white">
+      {/* ── Top bar ── */}
+      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between">
+          {/* Logo */}
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center">
-              <Activity className="w-6 h-6 text-black" />
+            <div className="w-9 h-9 bg-emerald-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-500/30">
+              <Activity className="w-5 h-5 text-black" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-white">Sentinel Edge</h1>
-              <p className="text-gray-400">Production Ready!</p>
+              <span className="text-lg font-bold text-white tracking-tight">Sentinel Edge</span>
+              <span className="ml-2 text-xs text-gray-500 hidden sm:inline">Trading Analyst Sidecar</span>
             </div>
           </div>
 
-          {/* Connection Status */}
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-full ${
-            connected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-          }`}>
-            {connected ? (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                <span>Connected</span>
-              </>
-            ) : (
-              <>
-                <XCircle className="w-4 h-4" />
-                <span>{loading ? 'Connecting...' : 'Disconnected'}</span>
-              </>
+          {/* Right controls */}
+          <div className="flex items-center gap-3">
+            {/* Pause / Resume */}
+            {connected && (
+              <button
+                data-testid="scheduler-toggle-btn"
+                onClick={toggleScheduler}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+                  schedulerPaused
+                    ? 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                    : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                }`}
+              >
+                {schedulerPaused ? (
+                  <>
+                    <Play className="w-4 h-4" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="w-4 h-4" />
+                    Pause
+                  </>
+                )}
+              </button>
             )}
-          </div>
-        </div>
 
-        {/* Success Box */}
-        <div className={`border-2 rounded-xl p-6 mb-6 ${
-          connected 
-            ? 'bg-emerald-500/10 border-emerald-500' 
-            : 'bg-yellow-500/10 border-yellow-500'
-        }`}>
-          <h2 className={`text-2xl font-bold mb-2 ${
-            connected ? 'text-emerald-400' : 'text-yellow-400'
-          }`}>
-            {connected ? '✅ All Systems Operational!' : '⚠️ Connecting to Backend...'}
-          </h2>
-          <p className="text-gray-300 mb-3">
-            {loading ? 'Loading backend data...' : 
-              connected ? 'Successfully connected to Sentinel Edge backend!' : 
-              'Check browser console (F12) for connection details'}
-          </p>
-          <p className="text-xs text-gray-500 mb-2">Backend URL: {BACKEND_URL}</p>
-          {stats && (
-            <div className="text-sm text-gray-400 space-y-1">
-              <p>• Backend Status: {stats.running ? '✓ Running' : '✗ Stopped'}</p>
-              <p>• Active Tickers: {stats.active_tickers}</p>
-              <p>• Paused: {stats.paused ? 'Yes' : 'No'}</p>
+            {/* Connection badge */}
+            <div
+              data-testid="connection-status"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+                connected
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'bg-red-500/20 text-red-400'
+              }`}
+            >
+              {connected ? (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  Connected
+                </>
+              ) : (
+                <>
+                  <XCircle className="w-4 h-4" />
+                  {loading ? 'Connecting…' : 'Disconnected'}
+                </>
+              )}
             </div>
-          )}
+          </div>
         </div>
+      </header>
 
-        {/* Cards with Live Data */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <Activity className="w-8 h-8 text-blue-400 mb-2" />
-            <div className="text-2xl font-bold text-white">
-              {stats?.running ? '✓' : loading ? '...' : '✗'}
-            </div>
-            <p className="text-sm text-gray-400">Backend Status</p>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <TrendingUp className="w-8 h-8 text-green-400 mb-2" />
-            <div className="text-2xl font-bold text-white">
-              {stats?.active_tickers ?? (loading ? '...' : '0')}
-            </div>
-            <p className="text-sm text-gray-400">Active Tickers</p>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <Zap className="w-8 h-8 text-purple-400 mb-2" />
-            <div className="text-2xl font-bold text-white">30+</div>
-            <p className="text-sm text-gray-400">Prometheus Metrics</p>
+      {/* ── Tab navigation ── */}
+      <nav
+        className="border-b border-gray-800 bg-gray-900/50 sticky top-[57px] z-40 backdrop-blur-sm"
+        data-testid="tab-navigation"
+      >
+        <div className="max-w-screen-2xl mx-auto px-6">
+          <div className="flex gap-1 overflow-x-auto">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                data-testid={`tab-${id}`}
+                onClick={() => setActiveTab(id)}
+                className={`flex items-center gap-2 px-5 py-4 text-sm font-medium whitespace-nowrap
+                  border-b-2 transition-all duration-200 ${
+                    activeTab === id
+                      ? 'border-emerald-500 text-emerald-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+                  }`}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </button>
+            ))}
           </div>
         </div>
-      </div>
+      </nav>
+
+      {/* ── Page content ── */}
+      <main className="max-w-screen-2xl mx-auto px-6 py-8" data-testid="main-content">
+        {activeTab === 'overview' && <TradingOverview />}
+        {activeTab === 'broker' && <BrokerHealth />}
+        {activeTab === 'pnl' && <PnLTracking />}
+        {activeTab === 'markets' && <MarketCoverage />}
+      </main>
     </div>
   );
 }

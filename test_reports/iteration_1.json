@@ -1,0 +1,75 @@
+{
+  "summary": "Full e2e testing of Sentinel Edge trading analyst sidecar app. Backend APIs all pass (40/40). Frontend loads correctly with no blank screen, all 4 tabs work, ticker card Settings panel opens, Pause/Resume toggles correctly. Dashboard fully functional.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/health",
+        "issue": "active_tickers returns an integer (count), not a list. Frontend reads it as a count which is fine for health checks, but /api/stats returns the full list. No functional issue."
+      },
+      {
+        "endpoint": "server.py",
+        "issue": "@app.on_event('shutdown') decorator at line 316 is deprecated in newer FastAPI versions alongside the lifespan context manager. The lifespan already handles shutdown - this is a duplicate/dead handler."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "MarketCoverage",
+        "issue": "api.getMarkets() result is stored in Zustand via setMarkets(data) but the displayed marketsList uses local component state (useState) which is never updated from the API. Markets data will always show hardcoded initial state regardless of API response.",
+        "selector": "MarketCoverage.tsx:37-44",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Market Coverage data refresh",
+        "issue": "loadMarkets() sets Zustand store markets but local marketsList state is never updated - API data not reflected in UI",
+        "affected_selectors": ["MarketCoverage marketsList state"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "All tabs",
+        "issues": [
+          "X-axis chart labels slightly clipped on left edge (first label shows ':00' instead of full '10:00') - cosmetic only, SVG viewBox issue",
+          "Ticker cards show 0.0 Signal Strength - expected per notes (yfinance rate-limited), not a design issue"
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sentinel_edge.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix MarketCoverage.tsx: loadMarkets() should update local marketsList state (setMarketsList) not just the Zustand store, so API data is displayed",
+    "Consider removing unused axios dependency from package.json (not causing issues but unnecessary)",
+    "Remove deprecated @app.on_event('shutdown') from server.py (already handled by lifespan context manager)",
+    "Fix SVG chart X-axis: first timestamp label is clipped - increase left padding or adjust viewBox"
+  ],
+  "critical_code_review_comments": [
+    "MarketCoverage bug: setMarkets(data) updates Zustand store but component renders from local `marketsList` useState - these are disconnected. Either use the store for rendering or update local state in loadMarkets()",
+    "server.py has both lifespan() context manager AND @app.on_event('shutdown') - the on_event is redundant and deprecated in FastAPI >= 0.93",
+    "package.json lists axios 1.15.0 as a dependency but no component imports it - dead dependency, could be removed"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sentinel_edge.py"
+  ],
+  "success_rate": {
+    "backend": "100% (40/40 tests passed)",
+    "frontend": "95% (all core flows working; minor MarketCoverage API data display bug)"
+  },
+  "seed_data_creation": "None - test used add/remove ticker temporarily (TSLA, MSFT) which were cleaned up",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "First test run. All backend APIs confirmed working. Frontend loads correctly with full tabbed layout, SVG charts, ticker cards with Settings panels, Pause/Resume toggle. Main code issue: MarketCoverage.tsx does not update local state from API response (setMarkets updates Zustand, not local marketsList). Backend tests in /app/backend/tests/test_sentinel_edge.py cover all 8 endpoint groups.",
+  "rca_of_issues": {
+    "MarketCoverage_data_not_updating": {
+      "bug": "loadMarkets() calls api.getMarkets() and passes result to setMarkets() (Zustand action) but the component template renders from local useState `marketsList`. These are two separate state containers with no sync.",
+      "reproduction": "Navigate to Market Coverage tab - markets always show hardcoded initial values (US=Open, CA=Open, others=Closed) regardless of actual API response which may differ.",
+      "mitigation": "In MarketCoverage.tsx, change loadMarkets() to call setMarketsList(transformedData) instead of (or in addition to) setMarkets(data), where transformedData maps the API response dict to the Market[] format expected by the component."
+    }
+  }
+}

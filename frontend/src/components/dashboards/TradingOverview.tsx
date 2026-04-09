@@ -5,15 +5,23 @@ import { TickerCard } from '../cards/TickerCard';
 import { ChartCard } from '../cards/ChartCard';
 import { useStore } from '@/store/useStore';
 import { api } from '@/lib/api';
+import { TickerData } from '@/types';
 
 export const TradingOverview: React.FC = () => {
   const { tickers, stats, setTickers, setStats } = useStore();
-  const [breakoutData, setBreakoutData] = useState<any[]>([]);
+  const [breakoutData, setBreakoutData] = useState([
+    { timestamp: '10:00', value: 2 },
+    { timestamp: '10:30', value: 5 },
+    { timestamp: '11:00', value: 3 },
+    { timestamp: '11:30', value: 7 },
+    { timestamp: '12:00', value: 4 },
+    { timestamp: '12:30', value: 6 },
+  ]);
   const [tickerConfigs, setTickerConfigs] = useState<Record<string, any>>({});
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5000); // Refresh every 5s
+    const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -23,18 +31,16 @@ export const TradingOverview: React.FC = () => {
         api.getTickers(),
         api.getStats(),
       ]);
-      setTickers(tickersData.tickers || []);
+
+      // Backend returns { tickers: string[], count: number }
+      const raw: any[] = tickersData.tickers || [];
+      const mapped: TickerData[] = raw.map((t: any) =>
+        typeof t === 'string'
+          ? { symbol: t, enabled: true }
+          : t,
+      );
+      setTickers(mapped);
       setStats(statsData);
-      
-      // Mock breakout data for chart
-      setBreakoutData([
-        { timestamp: '10:00', value: 2 },
-        { timestamp: '10:30', value: 5 },
-        { timestamp: '11:00', value: 3 },
-        { timestamp: '11:30', value: 7 },
-        { timestamp: '12:00', value: 4 },
-        { timestamp: '12:30', value: 6 },
-      ]);
     } catch (error) {
       console.error('Failed to load data:', error);
     }
@@ -42,41 +48,26 @@ export const TradingOverview: React.FC = () => {
 
   const handleMetricToggle = async (symbol: string, metric: string) => {
     const currentConfig = tickerConfigs[symbol] || {
-      orb: true,
-      atr: true,
-      signal: true,
-      volume: true,
-      price: true,
-      breakouts: true,
+      orb: true, atr: true, signal: true, volume: true, price: true, breakouts: true,
     };
-
-    const newConfig = {
-      ...currentConfig,
-      [metric]: !currentConfig[metric],
-    };
-
-    setTickerConfigs({
-      ...tickerConfigs,
-      [symbol]: newConfig,
-    });
-
-    // Update backend
+    const newConfig = { ...currentConfig, [metric]: !currentConfig[metric] };
+    setTickerConfigs({ ...tickerConfigs, [symbol]: newConfig });
     try {
       await api.updateTickerConfig(symbol, { metrics: newConfig });
-      console.log(`Updated ${symbol} config:`, newConfig);
     } catch (error) {
       console.error(`Failed to update ${symbol} config:`, error);
     }
   };
 
-  const activeTickers = tickers.filter(t => t.enabled);
+  const activeTickers = tickers.filter((t) => t.enabled);
   const totalBreakouts = breakoutData.reduce((sum, d) => sum + d.value, 0);
-  const avgSignalStrength = activeTickers.length > 0
-    ? (activeTickers.reduce((sum, t) => sum + (t.signal_strength || 0), 0) / activeTickers.length)
-    : 0;
+  const avgSignalStrength =
+    activeTickers.length > 0
+      ? activeTickers.reduce((sum, t) => sum + (t.signal_strength || 0), 0) / activeTickers.length
+      : 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="trading-overview">
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
@@ -144,9 +135,9 @@ export const TradingOverview: React.FC = () => {
             />
           ))}
         </div>
-        
+
         {activeTickers.length === 0 && (
-          <div className="text-center py-12">
+          <div className="text-center py-12" data-testid="no-tickers-placeholder">
             <Activity className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 text-lg">No active tickers</p>
             <p className="text-gray-500 text-sm">Add tickers to start monitoring</p>

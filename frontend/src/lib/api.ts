@@ -1,84 +1,60 @@
-import axios, { AxiosInstance } from 'axios';
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
+async function fetchJSON<T = any>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+}
 
 class ApiClient {
-  private client: AxiosInstance;
-
-  constructor() {
-    this.client = axios.create({
-      baseURL: BACKEND_URL,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-  }
-
-  // Health & Status
   async getHealth() {
-    const { data } = await this.client.get('/api/health');
-    return data;
+    return fetchJSON('/api/health');
   }
 
   async getStats() {
-    const { data } = await this.client.get('/api/stats');
-    return data;
+    return fetchJSON('/api/stats');
   }
 
-  // Tickers
   async getTickers() {
-    const { data } = await this.client.get('/api/tickers');
-    return data;
+    return fetchJSON('/api/tickers');
   }
 
   async addTicker(symbol: string) {
-    const { data } = await this.client.post(`/api/tickers/${symbol}`);
-    return data;
+    return fetchJSON(`/api/tickers/${symbol}`, { method: 'POST' });
   }
 
   async removeTicker(symbol: string) {
-    const { data } = await this.client.delete(`/api/tickers/${symbol}`);
-    return data;
+    return fetchJSON(`/api/tickers/${symbol}`, { method: 'DELETE' });
   }
 
-  // Ticker Configuration
   async updateTickerConfig(symbol: string, config: any) {
-    const { data } = await this.client.put(`/api/tickers/${symbol}/config`, config);
-    return data;
+    return fetchJSON(`/api/tickers/${symbol}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
   }
 
   async getTickerConfig(symbol: string) {
-    const { data } = await this.client.get(`/api/tickers/${symbol}/config`);
-    return data;
+    return fetchJSON(`/api/tickers/${symbol}/config`);
   }
 
-  // ORB Data
   async getOrbLevels(symbol: string) {
-    const { data } = await this.client.get(`/api/orb/${symbol}`);
-    return data;
+    return fetchJSON(`/api/orb/${symbol}`);
   }
 
-  // Markets
   async getMarkets() {
-    const { data } = await this.client.get('/api/markets');
-    return data;
+    return fetchJSON('/api/markets');
   }
 
-  // Control
   async pauseScheduler() {
-    const { data } = await this.client.post('/api/control/pause');
-    return data;
+    return fetchJSON('/api/control/pause', { method: 'POST' });
   }
 
   async resumeScheduler() {
-    const { data } = await this.client.post('/api/control/resume');
-    return data;
-  }
-
-  // Metrics (raw Prometheus format)
-  async getMetrics() {
-    const { data } = await this.client.get('/metrics');
-    return data;
+    return fetchJSON('/api/control/resume', { method: 'POST' });
   }
 }
 

@@ -1,16 +1,48 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+
+interface ChartDataPoint {
+  timestamp: string;
+  value: number;
+  label?: string;
+}
 
 interface ChartCardProps {
   title: string;
-  data: Array<{ timestamp: string; value: number; label?: string }>;
+  data: ChartDataPoint[];
   type?: 'line' | 'area';
   color?: string;
   showTrend?: boolean;
   height?: number;
   className?: string;
+}
+
+function buildSvgPath(
+  data: ChartDataPoint[],
+  width: number,
+  height: number,
+  filled: boolean,
+): string {
+  if (data.length < 2) return '';
+  const values = data.map((d) => d.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const padY = height * 0.08;
+  const innerH = height - padY * 2;
+
+  const pts = data.map((d, i) => ({
+    x: (i / (data.length - 1)) * width,
+    y: padY + innerH - ((d.value - min) / range) * innerH,
+  }));
+
+  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+  if (filled) {
+    return `${line} L${pts[pts.length - 1].x.toFixed(1)},${height} L0,${height} Z`;
+  }
+  return line;
 }
 
 export const ChartCard: React.FC<ChartCardProps> = ({
@@ -22,12 +54,26 @@ export const ChartCard: React.FC<ChartCardProps> = ({
   height = 200,
   className = '',
 }) => {
-  const latestValue = data[data.length - 1]?.value || 0;
-  const previousValue = data[data.length - 2]?.value || 0;
-  const trend = latestValue >= previousValue ? 'up' : 'down';
-  const trendPercent = previousValue !== 0 
-    ? (((latestValue - previousValue) / previousValue) * 100).toFixed(2)
-    : '0.00';
+  const latestValue = data[data.length - 1]?.value ?? 0;
+  const previousValue = data[data.length - 2]?.value ?? 0;
+  const trendUp = latestValue >= previousValue;
+  const trendPercent =
+    previousValue !== 0
+      ? (((latestValue - previousValue) / Math.abs(previousValue)) * 100).toFixed(2)
+      : '0.00';
+
+  const svgW = 600;
+  const svgH = height;
+  const filled = type === 'area';
+  const pathD = buildSvgPath(data, svgW, svgH, filled);
+
+  // Build tick labels
+  const tickCount = Math.min(data.length, 6);
+  const tickIndexes = data.length <= tickCount
+    ? data.map((_, i) => i)
+    : Array.from({ length: tickCount }, (_, i) =>
+        Math.round((i / (tickCount - 1)) * (data.length - 1)),
+      );
 
   return (
     <motion.div
@@ -37,93 +83,92 @@ export const ChartCard: React.FC<ChartCardProps> = ({
         backdrop-blur-sm shadow-xl hover:shadow-2xl transition-all duration-300 ${className}`}
     >
       <div className="p-6">
+        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">{title}</h3>
-          {showTrend && (
-            <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium
-              ${trend === 'up' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-              {trend === 'up' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+          {showTrend && data.length >= 2 && (
+            <div
+              className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                trendUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+              }`}
+            >
+              {trendUp ? (
+                <TrendingUp className="w-4 h-4" />
+              ) : (
+                <TrendingDown className="w-4 h-4" />
+              )}
               <span>{trendPercent}%</span>
             </div>
           )}
         </div>
 
-        <div style={{ height }}>
-          <ResponsiveContainer width="100%" height="100%">
-            {type === 'area' ? (
-              <AreaChart data={data}>
-                <defs>
-                  <linearGradient id={`gradient-${title}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={color} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={color} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis 
-                  dataKey="timestamp" 
-                  stroke="#6b7280" 
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
+        {/* SVG Chart */}
+        <div style={{ height }} className="w-full overflow-hidden">
+          {data.length < 2 ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-gray-500 text-sm">No data yet</p>
+            </div>
+          ) : (
+            <svg
+              viewBox={`0 0 ${svgW} ${svgH}`}
+              preserveAspectRatio="none"
+              className="w-full h-full"
+            >
+              <defs>
+                <linearGradient id={`grad-${title}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={color} stopOpacity="0.35" />
+                  <stop offset="95%" stopColor={color} stopOpacity="0" />
+                </linearGradient>
+              </defs>
+
+              {/* Grid lines */}
+              {[0.25, 0.5, 0.75].map((frac) => (
+                <line
+                  key={frac}
+                  x1="0"
+                  y1={svgH * frac}
+                  x2={svgW}
+                  y2={svgH * frac}
+                  stroke="#374151"
+                  strokeWidth="1"
+                  strokeDasharray="4,4"
                 />
-                <YAxis 
-                  stroke="#6b7280" 
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
+              ))}
+
+              {/* Fill */}
+              {filled && (
+                <path
+                  d={pathD}
+                  fill={`url(#grad-${title})`}
+                  stroke="none"
                 />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1f2937', 
-                    border: '1px solid #374151',
-                    borderRadius: '8px'
-                  }}
-                  labelStyle={{ color: '#9ca3af' }}
-                  itemStyle={{ color: '#fff' }}
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="value" 
-                  stroke={color}
-                  strokeWidth={2}
-                  fill={`url(#gradient-${title})`}
-                  animationDuration={1000}
-                />
-              </AreaChart>
-            ) : (
-              <LineChart data={data}>
-                <XAxis 
-                  dataKey="timestamp" 
-                  stroke="#6b7280" 
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis 
-                  stroke="#6b7280" 
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1f2937', 
-                    border: '1px solid #374151',
-                    borderRadius: '8px'
-                  }}
-                  labelStyle={{ color: '#9ca3af' }}
-                  itemStyle={{ color: '#fff' }}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="value" 
-                  stroke={color}
-                  strokeWidth={2}
-                  dot={false}
-                  animationDuration={1000}
-                />
-              </LineChart>
-            )}
-          </ResponsiveContainer>
+              )}
+
+              {/* Line */}
+              <path
+                d={pathD.split(' Z')[0]}
+                fill="none"
+                stroke={color}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+
+              {/* X-axis labels */}
+              {tickIndexes.map((idx) => (
+                <text
+                  key={idx}
+                  x={(idx / (data.length - 1)) * svgW}
+                  y={svgH - 2}
+                  fill="#6b7280"
+                  fontSize="18"
+                  textAnchor="middle"
+                >
+                  {data[idx].timestamp}
+                </text>
+              ))}
+            </svg>
+          )}
         </div>
       </div>
     </motion.div>

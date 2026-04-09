@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TrendingUp, TrendingDown, Activity, DollarSign, Target, Settings, X } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
 interface MetricToggles {
   orb: boolean;
@@ -38,6 +37,21 @@ const defaultMetricToggles: MetricToggles = {
   breakouts: true,
 };
 
+function buildSparkline(history: Array<{ value: number }>, width: number, height: number): string {
+  if (history.length < 2) return '';
+  const values = history.map((d) => d.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  return history
+    .map((d, i) => {
+      const x = (i / (history.length - 1)) * width;
+      const y = height - ((d.value - min) / range) * height * 0.85 - height * 0.05;
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
 export const TickerCard: React.FC<TickerCardProps> = ({
   symbol,
   enabled,
@@ -51,7 +65,6 @@ export const TickerCard: React.FC<TickerCardProps> = ({
   priceHistory = [],
   metricToggles = defaultMetricToggles,
   onToggle,
-  onConfigure,
   onMetricToggle,
 }) => {
   const [showConfig, setShowConfig] = useState(false);
@@ -74,19 +87,23 @@ export const TickerCard: React.FC<TickerCardProps> = ({
     return 'from-gray-700/30 to-gray-800/10 border-gray-600/50';
   };
 
-  const MetricToggle = ({ 
-    label, 
-    metric, 
-    enabled: metricEnabled 
-  }: { 
-    label: string; 
-    metric: keyof MetricToggles; 
-    enabled: boolean 
+  const sparkColor =
+    trend === 'bullish' ? '#22c55e' : trend === 'bearish' ? '#ef4444' : '#6b7280';
+
+  const MetricToggle = ({
+    label,
+    metric,
+    enabled: metricEnabled,
+  }: {
+    label: string;
+    metric: keyof MetricToggles;
+    enabled: boolean;
   }) => (
     <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-black/20 hover:bg-black/30 transition-all">
       <span className="text-sm text-gray-300">{label}</span>
       <button
         onClick={() => onMetricToggle?.(metric)}
+        data-testid={`${symbol}-toggle-${metric}`}
         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
           ${metricEnabled ? 'bg-green-500' : 'bg-gray-600'}`}
       >
@@ -113,33 +130,33 @@ export const TickerCard: React.FC<TickerCardProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h3 className="text-2xl font-bold text-white">{symbol}</h3>
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-medium ${getTrendColor()} bg-black/30`}>
+            <div
+              className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-medium ${getTrendColor()} bg-black/30`}
+            >
               {getTrendIcon()}
               <span className="capitalize">{trend}</span>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowConfig(!showConfig)}
-              className={`p-2 rounded-lg transition-all
-                ${showConfig 
-                  ? 'bg-blue-500/30 text-blue-400' 
-                  : 'bg-gray-700/20 text-gray-400 hover:bg-gray-700/30'
-                }`}
               data-testid={`${symbol}-config-button`}
+              className={`p-2 rounded-lg transition-all
+                ${showConfig
+                  ? 'bg-blue-500/30 text-blue-400'
+                  : 'bg-gray-700/20 text-gray-400 hover:bg-gray-700/30'}`}
             >
               <Settings className="w-5 h-5" />
             </button>
-            
+
             <button
               onClick={onToggle}
-              className={`px-4 py-2 rounded-lg font-medium transition-all
-                ${enabled 
-                  ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' 
-                  : 'bg-gray-700/20 text-gray-400 hover:bg-gray-700/30'
-                }`}
               data-testid={`${symbol}-toggle-button`}
+              className={`px-4 py-2 rounded-lg font-medium transition-all
+                ${enabled
+                  ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                  : 'bg-gray-700/20 text-gray-400 hover:bg-gray-700/30'}`}
             >
               {enabled ? 'Active' : 'Paused'}
             </button>
@@ -167,14 +184,14 @@ export const TickerCard: React.FC<TickerCardProps> = ({
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              
+
               <MetricToggle label="ORB Levels" metric="orb" enabled={metricToggles.orb} />
               <MetricToggle label="ATR (Volatility)" metric="atr" enabled={metricToggles.atr} />
               <MetricToggle label="Signal Strength" metric="signal" enabled={metricToggles.signal} />
               <MetricToggle label="Volume Ratio" metric="volume" enabled={metricToggles.volume} />
               <MetricToggle label="Price Tracking" metric="price" enabled={metricToggles.price} />
               <MetricToggle label="Breakout Detection" metric="breakouts" enabled={metricToggles.breakouts} />
-              
+
               <div className="mt-4 pt-3 border-t border-gray-700/50">
                 <p className="text-xs text-gray-500">
                   Toggle metrics to reduce Prometheus scrape load and focus on specific indicators.
@@ -185,34 +202,34 @@ export const TickerCard: React.FC<TickerCardProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Price & Chart */}
+      {/* Price & Sparkline */}
       <div className="p-4">
-        {metricToggles.price && currentPrice && (
-          <div className="flex items-baseline gap-2 mb-4">
+        {metricToggles.price && currentPrice !== undefined && (
+          <div className="flex items-baseline gap-2 mb-3">
             <DollarSign className="w-5 h-5 text-gray-400" />
-            <span className="text-3xl font-bold text-white">
-              {currentPrice.toFixed(2)}
-            </span>
+            <span className="text-3xl font-bold text-white">{currentPrice.toFixed(2)}</span>
           </div>
         )}
 
-        {metricToggles.price && priceHistory.length > 0 && (
-          <div className="h-20 mb-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={priceHistory}>
-                <Line 
-                  type="monotone" 
-                  dataKey="value" 
-                  stroke={trend === 'bullish' ? '#22c55e' : trend === 'bearish' ? '#ef4444' : '#6b7280'}
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+        {metricToggles.price && priceHistory.length >= 2 && (
+          <div className="h-16 mb-4">
+            <svg
+              viewBox="0 0 200 60"
+              preserveAspectRatio="none"
+              className="w-full h-full"
+            >
+              <path
+                d={buildSparkline(priceHistory, 200, 60)}
+                fill="none"
+                stroke={sparkColor}
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
           </div>
         )}
 
-        {/* Metrics Grid - Only show enabled metrics */}
+        {/* Metrics Grid */}
         <div className="grid grid-cols-2 gap-3">
           {metricToggles.orb && orbHigh !== undefined && orbLow !== undefined && (
             <div className="bg-black/20 rounded-lg p-3">
@@ -221,7 +238,7 @@ export const TickerCard: React.FC<TickerCardProps> = ({
                 <span className="text-xs text-gray-400">ORB Range</span>
               </div>
               <p className="text-sm font-semibold text-white">
-                ${orbLow.toFixed(2)} - ${orbHigh.toFixed(2)}
+                ${orbLow.toFixed(2)} – ${orbHigh.toFixed(2)}
               </p>
             </div>
           )}
@@ -242,7 +259,11 @@ export const TickerCard: React.FC<TickerCardProps> = ({
                 <Activity className="w-4 h-4 text-yellow-400" />
                 <span className="text-xs text-gray-400">Signal</span>
               </div>
-              <p className={`text-sm font-semibold ${signalStrength >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              <p
+                className={`text-sm font-semibold ${
+                  signalStrength >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
                 {signalStrength.toFixed(1)}
               </p>
             </div>
@@ -259,22 +280,22 @@ export const TickerCard: React.FC<TickerCardProps> = ({
           )}
         </div>
 
-        {/* Metric Status Indicator */}
+        {/* Metric count */}
         <div className="mt-4 flex items-center gap-2 text-xs text-gray-500">
-          <div className="flex items-center gap-1">
-            <div className={`w-2 h-2 rounded-full ${
-              Object.values(metricToggles).filter(Boolean).length === 6 
-                ? 'bg-green-400' 
+          <div
+            className={`w-2 h-2 rounded-full ${
+              Object.values(metricToggles).filter(Boolean).length === 6
+                ? 'bg-green-400'
                 : 'bg-yellow-400'
-            }`} />
-            <span>
-              {Object.values(metricToggles).filter(Boolean).length}/6 metrics active
-            </span>
-          </div>
+            }`}
+          />
+          <span>
+            {Object.values(metricToggles).filter(Boolean).length}/6 metrics active
+          </span>
         </div>
       </div>
 
-      {/* Glow effect */}
+      {/* Glow edge */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
       </div>
