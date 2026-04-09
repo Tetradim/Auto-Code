@@ -22,4 +22,8 @@ export default defineConfig({
       '.preview.emergentagent.com',
     ],
   },
+  optimizeDeps: {
+    include: ['zustand', 'axios', 'framer-motion', 'lucide-react', 'recharts'],
+    force: true,
+  },
 });
