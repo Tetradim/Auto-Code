@@ -236,8 +236,8 @@ market_minutes_to_close = Gauge(
 
 correlation_clusters_total = Counter(
     "analyst_correlation_clusters_total",
-    "Correlation clusters detected across symbols",
-    ["direction"]
+    "Detected correlation clusters",
+    ["direction", "strength"]
 )
 
 # ═══════════════════════════════════════════════════════════

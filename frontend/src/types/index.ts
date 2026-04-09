@@ -63,3 +63,12 @@ export interface DecisionEntry {
   price: number;
   timestamp: string;
 }
+
+export interface CorrelationCluster {
+  direction: 'BULLISH' | 'BEARISH';
+  count: number;
+  symbols: string[];
+  strength: number;
+  score?: number;
+  timestamp: string;
+}

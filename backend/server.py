@@ -291,12 +291,14 @@ async def get_decisions():
 
 @api_router.get("/correlation")
 async def get_correlation():
-    """Get correlation cluster data and market breadth"""
+    """Get correlation cluster data, market breadth, and latest cluster"""
     if not scheduler:
-        return {"clusters": [], "breadth": {}}
+        return {"clusters": [], "breadth": {}, "latest": None}
+    clusters = scheduler.correlation.get_recent_clusters()
     return {
-        "clusters": scheduler.correlation.get_recent_clusters(),
+        "clusters": clusters,
         "breadth": scheduler.correlation.get_current_breadth(),
+        "latest": scheduler.correlation.get_latest_cluster(),
     }
 
 

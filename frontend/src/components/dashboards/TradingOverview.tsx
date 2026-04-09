@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Activity, TrendingUp, AlertCircle, Zap, AlertTriangle, Plus } from 'lucide-react';
+import { Activity, TrendingUp, AlertCircle, Zap, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MetricCard } from '../cards/MetricCard';
 import { TickerCard } from '../cards/TickerCard';
 import { ChartCard } from '../cards/ChartCard';
 import { DecisionFeed } from './DecisionFeed';
+import { MarketBreadth } from './MarketBreadth';
 import { useStore } from '@/store/useStore';
 import { api } from '@/lib/api';
 import {
@@ -14,49 +15,12 @@ import {
 } from '@/lib/mockData';
 import type { TickerData, DecisionEntry } from '@/types';
 
-// ── Market Breadth bar ─────────────────────────────────────────────────
-
-interface Breadth {
-  bullish: number;
-  bearish: number;
-  neutral: number;
-  bullish_pct: number;
-  bearish_pct: number;
-  total: number;
-}
-
-const BreadthBar: React.FC<{ breadth: Breadth }> = ({ breadth }) => (
-  <div data-testid="breadth-bar" className="space-y-2">
-    <div className="flex justify-between text-xs text-gray-400 mb-1">
-      <span className="text-green-400">{breadth.bullish_pct}% Bullish ({breadth.bullish})</span>
-      <span className="text-gray-500">{breadth.neutral} Neutral</span>
-      <span className="text-red-400">{breadth.bearish_pct}% Bearish ({breadth.bearish})</span>
-    </div>
-    <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-800">
-      <div
-        className="bg-green-500 transition-all duration-700"
-        style={{ width: `${breadth.bullish_pct}%` }}
-      />
-      <div
-        className="bg-gray-600 transition-all duration-700"
-        style={{ width: `${100 - breadth.bullish_pct - breadth.bearish_pct}%` }}
-      />
-      <div
-        className="bg-red-500 transition-all duration-700"
-        style={{ width: `${breadth.bearish_pct}%` }}
-      />
-    </div>
-  </div>
-);
-
 // ── Add Ticker form ────────────────────────────────────────────────────
 
-interface AddTickerProps {
+const AddTickerForm: React.FC<{
   onAdd: (symbol: string) => Promise<void>;
   disabled?: boolean;
-}
-
-const AddTickerForm: React.FC<AddTickerProps> = ({ onAdd, disabled }) => {
+}> = ({ onAdd, disabled }) => {
   const [value, setValue] = useState('');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
@@ -73,7 +37,7 @@ const AddTickerForm: React.FC<AddTickerProps> = ({ onAdd, disabled }) => {
     try {
       await onAdd(sym);
       setValue('');
-    } catch (err) {
+    } catch {
       setError('Failed to add ticker — try again');
     } finally {
       setAdding(false);
@@ -117,7 +81,7 @@ export const TradingOverview: React.FC = () => {
     tickers, stats,
     setTickers, removeTicker, setStats,
     mockMode,
-    correlationAlerts, addCorrelationAlert,
+    correlation, setCorrelation,
   } = useStore();
 
   const [breakoutData] = useState([
@@ -130,11 +94,7 @@ export const TradingOverview: React.FC = () => {
   ]);
 
   const [tickerConfigs, setTickerConfigs] = useState<Record<string, any>>({});
-  const [breadth, setBreadth] = useState<Breadth>({
-    bullish: 0, bearish: 0, neutral: 0, bullish_pct: 0, bearish_pct: 0, total: 1,
-  });
   const [decisions, setDecisions] = useState<DecisionEntry[]>([]);
-
   const mockPricesRef = useRef<TickerData[]>([]);
 
   useEffect(() => {
@@ -158,10 +118,13 @@ export const TradingOverview: React.FC = () => {
         const bulls = mockTickers.filter((t) => t.trend === 'bullish').length;
         const bears = mockTickers.filter((t) => t.trend === 'bearish').length;
         const total = mockTickers.length;
-        setBreadth({
-          bullish: bulls, bearish: bears, neutral: total - bulls - bears, total,
-          bullish_pct: parseFloat(((bulls / total) * 100).toFixed(1)),
-          bearish_pct: parseFloat(((bears / total) * 100).toFixed(1)),
+        setCorrelation({
+          ...correlation,
+          breadth: {
+            bullish: bulls, bearish: bears, neutral: total - bulls - bears, total,
+            bullish_pct: parseFloat(((bulls / total) * 100).toFixed(1)),
+            bearish_pct: parseFloat(((bears / total) * 100).toFixed(1)),
+          },
         });
 
         // Accumulate mock decisions
@@ -182,20 +145,19 @@ export const TradingOverview: React.FC = () => {
 
       if (tickersRes.status === 'fulfilled') {
         const raw: any[] = tickersRes.value.tickers || [];
-        const mapped: TickerData[] = raw.map((t: any) =>
-          typeof t === 'string' ? { symbol: t, enabled: true } : t,
+        setTickers(
+          raw.map((t: any) => (typeof t === 'string' ? { symbol: t, enabled: true } : t)),
         );
-        setTickers(mapped);
       }
-
       if (statsRes.status === 'fulfilled') setStats(statsRes.value);
 
       if (corrRes.status === 'fulfilled') {
         const cd = corrRes.value;
-        if ((cd.clusters || []).length > 0 && correlationAlerts.length === 0) {
-          (cd.clusters as any[]).forEach((c: any) => addCorrelationAlert(c));
-        }
-        if (cd.breadth) setBreadth(cd.breadth);
+        setCorrelation({
+          latest: cd.latest ?? null,
+          breadth: cd.breadth ?? correlation.breadth,
+          clusters: cd.clusters ?? [],
+        });
       }
 
       if (decsRes.status === 'fulfilled') {
@@ -206,15 +168,15 @@ export const TradingOverview: React.FC = () => {
     }
   };
 
-  // ── Add / Remove ticker ─────────────────────────────────────────────
+  // ── Ticker management ────────────────────────────────────────────────
 
   const handleAddTicker = async (symbol: string) => {
     if (mockMode) {
-      // Local-only add in mock mode
       if (!tickers.find((t) => t.symbol === symbol)) {
         const { generateMockTicker } = await import('@/lib/mockData');
-        setTickers([...tickers, generateMockTicker(symbol)]);
-        mockPricesRef.current = [...mockPricesRef.current, generateMockTicker(symbol)];
+        const newTicker = generateMockTicker(symbol);
+        setTickers([...tickers, newTicker]);
+        mockPricesRef.current = [...mockPricesRef.current, newTicker];
       }
     } else {
       await api.addTicker(symbol);
@@ -240,7 +202,7 @@ export const TradingOverview: React.FC = () => {
     setTickerConfigs({ ...tickerConfigs, [symbol]: updated });
     if (!mockMode) {
       try { await api.updateTickerConfig(symbol, { metrics: updated }); }
-      catch (err) { console.error(err); }
+      catch { /* swallow */ }
     }
   };
 
@@ -259,7 +221,8 @@ export const TradingOverview: React.FC = () => {
         <MetricCard title="ORB Breakouts" value={27}
           subtitle="Today" icon={TrendingUp} color="green" change="+12.5%" trend="up" />
         <MetricCard title="Avg Signal" value={avgSignalStrength.toFixed(1)}
-          subtitle="Across all tickers" icon={Zap} color={avgSignalStrength >= 0 ? 'green' : 'red'} />
+          subtitle="Across all tickers" icon={Zap}
+          color={avgSignalStrength >= 0 ? 'green' : 'red'} />
         <MetricCard
           title="System Status"
           value={mockMode ? 'Mock Mode' : stats?.running ? 'Running' : 'Stopped'}
@@ -269,46 +232,8 @@ export const TradingOverview: React.FC = () => {
         />
       </div>
 
-      {/* Market Breadth */}
-      <div className="rounded-xl border border-gray-800 bg-gradient-to-br from-gray-900/90
-        to-gray-800/50 backdrop-blur-sm shadow-xl p-6" data-testid="market-breadth-panel">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-white">Market Breadth</h3>
-          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-full">
-            90-second window
-          </span>
-        </div>
-        <BreadthBar breadth={breadth} />
-        {breadth.total <= 1 && !mockMode && (
-          <p className="mt-2 text-xs text-gray-500 italic">
-            No directional signals in current window — awaiting BUY / STOP_BUYING events
-          </p>
-        )}
-        <AnimatePresence>
-          {correlationAlerts.slice(0, 3).map((alert, i) => (
-            <motion.div
-              key={`${alert.timestamp}-${i}`}
-              initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }} transition={{ delay: i * 0.1 }}
-              className={`mt-3 flex items-start gap-3 rounded-lg p-3 border text-sm
-                ${alert.direction === 'BULLISH'
-                  ? 'bg-green-500/10 border-green-500/30 text-green-300'
-                  : 'bg-red-500/10 border-red-500/30 text-red-300'}`}
-              data-testid="correlation-alert"
-            >
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <div>
-                <span className="font-semibold">
-                  {alert.count}-symbol {alert.direction} cluster detected
-                </span>
-                <span className="text-gray-400 ml-2">
-                  [{alert.symbols.join(', ')}] — score {alert.score}
-                </span>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+      {/* Market Breadth — now a standalone component */}
+      <MarketBreadth correlation={correlation} />
 
       {/* Decision Feed */}
       <DecisionFeed decisions={decisions} live={!mockMode} />
@@ -317,9 +242,8 @@ export const TradingOverview: React.FC = () => {
       <ChartCard title="ORB Breakout Activity" data={breakoutData}
         type="area" color="#22c55e" height={250} />
 
-      {/* Active Tickers section */}
+      {/* Active Tickers */}
       <div>
-        {/* Header row with Add Ticker */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold text-white">Active Tickers</h2>

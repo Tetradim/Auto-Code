@@ -1,12 +1,19 @@
 import { create } from 'zustand';
-import { TickerData, MarketStatus, SystemStats } from '@/types';
+import { TickerData, MarketStatus, SystemStats, CorrelationCluster } from '@/types';
 
-interface CorrelationAlert {
-  direction: 'BULLISH' | 'BEARISH';
-  count: number;
-  symbols: string[];
-  score: number;
-  timestamp: string;
+interface Breadth {
+  bullish: number;
+  bearish: number;
+  neutral: number;
+  bullish_pct: number;
+  bearish_pct: number;
+  total: number;
+}
+
+interface CorrelationState {
+  latest: CorrelationCluster | null;
+  breadth: Breadth;
+  clusters: CorrelationCluster[];
 }
 
 interface EdgeStore {
@@ -39,10 +46,14 @@ interface EdgeStore {
   mockMode: boolean;
   setMockMode: (enabled: boolean) => void;
 
-  // Correlation alerts
-  correlationAlerts: CorrelationAlert[];
-  setCorrelationAlerts: (alerts: CorrelationAlert[]) => void;
-  addCorrelationAlert: (alert: CorrelationAlert) => void;
+  // Correlation alerts (legacy — kept for DecisionFeed backward compat)
+  correlationAlerts: CorrelationCluster[];
+  setCorrelationAlerts: (alerts: CorrelationCluster[]) => void;
+  addCorrelationAlert: (alert: CorrelationCluster) => void;
+
+  // Full correlation state (new)
+  correlation: CorrelationState;
+  setCorrelation: (state: CorrelationState) => void;
 }
 
 export const useStore = create<EdgeStore>((set) => ({
@@ -82,11 +93,19 @@ export const useStore = create<EdgeStore>((set) => ({
   mockMode: false,
   setMockMode: (mockMode) => set({ mockMode }),
 
-  // Correlation alerts
+  // Correlation alerts (legacy)
   correlationAlerts: [],
   setCorrelationAlerts: (correlationAlerts) => set({ correlationAlerts }),
   addCorrelationAlert: (alert) =>
     set((state) => ({
       correlationAlerts: [alert, ...state.correlationAlerts].slice(0, 20),
     })),
+
+  // Full correlation state
+  correlation: {
+    latest: null,
+    breadth: { bullish: 0, bearish: 0, neutral: 0, bullish_pct: 0, bearish_pct: 0, total: 1 },
+    clusters: [],
+  },
+  setCorrelation: (correlation) => set({ correlation }),
 }));

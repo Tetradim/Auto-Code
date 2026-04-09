@@ -66,8 +66,15 @@ class EvaluationScheduler:
         # Recent non-HOLD decisions for the decision feed (newest first)
         self.recent_decisions: list = []
 
-        # Correlation engine
-        self.correlation = CorrelationEngine()
+        # Correlation engine (async, Motor-backed)
+        import os
+        self.correlation = CorrelationEngine(
+            db=self.db,
+            pulse_base_url=os.getenv("PULSE_API_URL", "http://pulse:8001"),
+            window_sec=120,
+            min_symbols=3,
+            cooldown_sec=300,
+        )
 
         logger.info(f"Scheduler initialized with {len(self.active_tickers)} tickers")
 
@@ -173,14 +180,15 @@ class EvaluationScheduler:
                 logger.error(f"🚨 {symbol}: EMERGENCY EXIT triggered")
                 await self.pulse.emergency_stop(symbol)
 
-            # ── Correlation tracking ──────────────────────────────────────
+            # ── Correlation tracking (async) ─────────────────────────────
             if decision == Decision.BUY:
-                self.correlation.record_signal(
+                await self.correlation.record_signal(
                     symbol, "BUY", min(abs(signal_strength) / 10.0, 1.0)
                 )
             elif decision in (Decision.STOP_BUYING, Decision.EMERGENCY_EXIT):
-                self.correlation.record_signal(
-                    symbol, "STOP_BUYING", min(abs(signal_strength) / 10.0, 1.0)
+                # Map to "SELL" so the engine recognises it as a bearish signal
+                await self.correlation.record_signal(
+                    symbol, "SELL", min(abs(signal_strength) / 10.0, 1.0)
                 )
 
             # ── Record decision for feed (skip HOLD) ─────────────────────
