@@ -107,6 +107,13 @@ Broker Health, P&L Tracking, and Market Coverage.
 - **`prometheus/rules.yml`**: added `StrongCorrelationCluster`, `BearishClusterOverride`, `HighPulseOverrideRate` (11 total alert rules) ✅
 - **`README.md`**: full rewrite — architecture diagram, communication channel table, analyst/ package reference, API reference, pluggable strategy example, MongoDB command bus docs, env vars, Docker quick-start ✅
 
+### Session 7 (2026-04-09) — Alertmanager Webhook Integration
+- **`prometheus/alertmanager.yml`**: updated with `group_by: [alertname, direction]`, per-route configs (BearishClusterOverride = 0s wait, critical = 30m repeat), inhibit rules suppressing warning when critical fires for same direction ✅
+- **`analyst/webhook/alert_handler.py`**: FastAPI router at `/api/webhook/alert`; dispatches `BearishClusterOverride` / `HighDrawdown` / `StrongCorrelationCluster` → `send_override()`; `EdgeEngineDown` logged; resolved alerts ACK'd without action; optional Basic Auth via `WEBHOOK_SECRET` env var; records overrides to `prom_exporter` ✅
+- **`analyst/core.py`**: `analyst_instance` module-level singleton set by server.py lifespan ✅
+- **`server.py`**: router included at `/api/webhook/*` prefix (K8s ingress compatible); `_analyst_core.analyst_instance = edge` set before background tasks start ✅
+- **Verified**: `/api/webhook/health` returns `{analyst_ready: true}`, firing + resolved test payloads both dispatch correctly ✅
+
 ## Key API Endpoints
 | Method | Path | Description |
 |--------|------|-------------|

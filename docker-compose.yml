@@ -29,6 +29,9 @@ services:
       - OTEL_SERVICE_NAME=sentinel-edge
       # Set to "true" to spin up a dedicated metrics server on :8002
       - ANALYST_START_METRICS_SERVER=false
+      # Optional: basic-auth for the Alertmanager webhook receiver
+      # Must match the password in prometheus/alertmanager.yml
+      - WEBHOOK_SECRET=
     volumes:
       - ./backend:/app
     depends_on:

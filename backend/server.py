@@ -26,6 +26,8 @@ from signals import SignalEngine
 # Sentinel Edge analyst package
 from analyst.core import SentinelEdge
 from analyst.observability.otel import instrument_fastapi
+from analyst.webhook import webhook_router
+import analyst.core as _analyst_core
 
 # Setup
 ROOT_DIR = Path(__file__).parent
@@ -86,9 +88,11 @@ async def lifespan(app: FastAPI):
     )
     edge.set_scheduler(scheduler)   # shares correlation engine + adds tracing
 
+    # Expose the live instance for the webhook handler
+    _analyst_core.analyst_instance = edge
+
     # Start scheduler (main evaluation loop)
     scheduler_task = asyncio.create_task(scheduler.run())
-
     # Start SentinelEdge ancillary tasks (WebSocket + MongoDB change stream)
     await edge.start_background_tasks()
 
@@ -356,7 +360,12 @@ async def metrics():
 
 
 # Include API router
+# Include API router (all /api/* routes)
 app.include_router(api_router)
+
+# Alertmanager webhook receiver (/api/webhook/alert, /api/webhook/health)
+# Prefixed with /api so K8s ingress routes to the backend (port 8001)
+app.include_router(webhook_router, prefix="/api")
 
 # CORS middleware
 app.add_middleware(

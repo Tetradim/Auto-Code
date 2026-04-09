@@ -21,6 +21,12 @@ from analyst.observability.otel import setup_otel, get_tracer
 
 logger = logging.getLogger(__name__)
 
+# ── Module-level singleton ────────────────────────────────────────────────────
+# Set by server.py lifespan after SentinelEdge is instantiated so that
+# alert_handler.py (and any other module) can access the live instance
+# without a circular import.
+analyst_instance: Optional["SentinelEdge"] = None
+
 
 class SentinelEdge:
     """

@@ -1,46 +1,64 @@
-# Alertmanager Configuration
+# Alertmanager Configuration — Sentinel Edge
 global:
   resolve_timeout: 5m
-  smtp_smarthost: 'localhost:587'
-  smtp_from: 'alertmanager@sentinel-edge.com'
 
-# Route configuration
 route:
-  group_by: ['alertname', 'cluster', 'service']
-  group_wait: 10s
-  group_interval: 10s
-  repeat_interval: 12h
-  receiver: 'sentinel-default'
+  # Group by alert name and correlation direction so related alerts
+  # fire as a single notification
+  group_by: ['alertname', 'direction']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'sentinel-webhook'
+
   routes:
-    - match:
-        severity: critical
-      receiver: 'sentinel-critical'
-      continue: true
-    - match:
-        severity: warning
-      receiver: 'sentinel-warning'
+    # Critical bearish correlation cluster — immediate, no grouping delay
+    - matchers:
+        - alertname = "BearishClusterOverride"
+      receiver: 'sentinel-webhook'
+      group_wait: 0s
+      repeat_interval: 1h
 
-# Receivers
+    # Strong correlation clusters — short delay to allow grouping
+    - matchers:
+        - alertname = "StrongCorrelationCluster"
+      receiver: 'sentinel-webhook'
+      group_wait: 10s
+      repeat_interval: 2h
+
+    # Engine down — critical, page immediately
+    - matchers:
+        - severity = "critical"
+        - alertname = "EdgeEngineDown"
+      receiver: 'sentinel-webhook'
+      group_wait: 0s
+      repeat_interval: 30m
+
 receivers:
-  - name: 'sentinel-default'
+  - name: 'sentinel-webhook'
     webhook_configs:
-      - url: 'http://sentinel-edge:8001/api/alerts/webhook'
+      - url: 'http://sentinel-edge:8001/api/webhook/alert'
         send_resolved: true
+        http_config:
+          basic_auth:
+            username: 'sentinel-edge'
+            # Mount a file containing the password, or set WEBHOOK_SECRET env var
+            # in docker-compose.  Leave blank to disable auth in dev.
+            password_file: '/etc/alertmanager/webhook_secret'
 
-  - name: 'sentinel-critical'
-    webhook_configs:
-      - url: 'http://sentinel-edge:8001/api/alerts/critical'
-        send_resolved: true
-
-  - name: 'sentinel-warning'
-    webhook_configs:
-      - url: 'http://sentinel-edge:8001/api/alerts/warning'
-        send_resolved: true
-
-# Inhibit rules
+# Inhibit rules:
+# If a critical alert fires for a given direction, suppress matching warnings
 inhibit_rules:
-  - source_match:
-      severity: 'critical'
-    target_match:
-      severity: 'warning'
-    equal: ['alertname', 'cluster', 'service']
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['direction']
+
+  # Don't fire CorrelationBearishCluster warning if BearishClusterOverride
+  # (critical) is already active — they describe the same event
+  - source_matchers:
+      - alertname = "BearishClusterOverride"
+    target_matchers:
+      - alertname = "CorrelationBearishCluster"
+    equal: ['direction']
