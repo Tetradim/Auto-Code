@@ -231,6 +231,16 @@ market_minutes_to_close = Gauge(
 )
 
 # ═══════════════════════════════════════════════════════════
+# CORRELATION METRICS
+# ═══════════════════════════════════════════════════════════
+
+correlation_clusters_total = Counter(
+    "analyst_correlation_clusters_total",
+    "Correlation clusters detected across symbols",
+    ["direction"]
+)
+
+# ═══════════════════════════════════════════════════════════
 # SYSTEM INFO
 # ═══════════════════════════════════════════════════════════
 

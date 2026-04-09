@@ -63,8 +63,10 @@ class TestTickers:
         data = resp.json()
         tickers = data["tickers"]
         assert isinstance(tickers, list)
+        # P1 sprint: tickers are now enriched objects (dicts), not plain strings
+        symbols = [t["symbol"] if isinstance(t, dict) else t for t in tickers]
         for symbol in ["SPY", "QQQ", "NVDA", "AAPL"]:
-            assert symbol in tickers, f"{symbol} not found in tickers list"
+            assert symbol in symbols, f"{symbol} not found in tickers list: {symbols}"
 
     def test_get_tickers_count_matches_list(self):
         resp = requests.get(f"{BASE_URL}/api/tickers")

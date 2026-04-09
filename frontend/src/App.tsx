@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play } from 'lucide-react';
+import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical } from 'lucide-react';
 import { TradingOverview } from './components/dashboards/TradingOverview';
 import { BrokerHealth } from './components/dashboards/BrokerHealth';
 import { PnLTracking } from './components/dashboards/PnLTracking';
@@ -19,7 +19,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export default function App() {
-  const { connected, setConnected } = useStore();
+  const { connected, setConnected, mockMode, setMockMode } = useStore();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [schedulerPaused, setSchedulerPaused] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -74,6 +74,21 @@ export default function App() {
 
           {/* Right controls */}
           <div className="flex items-center gap-3">
+            {/* Mock mode toggle */}
+            <button
+              data-testid="mock-mode-toggle"
+              onClick={() => setMockMode(!mockMode)}
+              title="Toggle mock/simulated data for testing"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                mockMode
+                  ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+                  : 'bg-gray-700/40 text-gray-500 hover:bg-gray-700/60 hover:text-gray-300'
+              }`}
+            >
+              <FlaskConical className="w-4 h-4" />
+              <span className="hidden sm:inline">{mockMode ? 'Mock ON' : 'Mock'}</span>
+            </button>
+
             {/* Pause / Resume */}
             {connected && (
               <button

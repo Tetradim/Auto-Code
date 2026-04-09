@@ -1,0 +1,73 @@
+{
+  "summary": "P1 Sprint testing for Sentinel Edge. All P1 features verified: enriched /api/tickers, /api/correlation, Mock Mode toggle, Market Breadth panel, TIGHTEN_TRAILING_STOP Decision enum. 39 new P1 backend tests + 40 regression tests all pass (79/79 total). All Frontend features working.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/metrics",
+        "issue": "Prometheus metrics endpoint is at root path (no /api prefix) — K8s ingress routes it to frontend HTML in preview environment. Metrics not accessible via public URL. This is a deployment concern; internal scraping may work differently.",
+        "priority": "LOW"
+      },
+      {
+        "endpoint": "/api/tickers",
+        "issue": "atr is 0.57 for SPY but confidence is 0.0 because confidence = min(|signal_strength|/10, 1) and signal_strength is 0.0 (markets closed). ATR and confidence are technically correct but look inconsistent to users when ATR > 0 but confidence = 0.0."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Trading Overview - Market Breadth (live mode)",
+        "issues": [
+          "Market Breadth shows '0 Neutral' in live mode even with 4 active tickers. This is by design (breadth only tracks BUY/STOP_BUYING events), but UX is confusing since the breadth bar looks empty when markets are closed. Consider showing 'N/A — awaiting signals' instead of '0 Neutral'."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_p1_features.py",
+    "/app/backend/tests/test_sentinel_edge.py",
+    "/app/test_reports/pytest/pytest_p1_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Add last_decision and confidence fields to TickerData TypeScript interface in types/index.ts — currently missing (backend returns them, frontend uses them via 'any' cast, no runtime error but type safety gap)",
+    "OPTIONAL: Add data-testid='ticker-card' to root element in TickerCard.tsx for better testability",
+    "OPTIONAL: Consider UX improvement for Market Breadth in live mode when no signals recorded — display 'No signals in window' instead of '0 Neutral'"
+  ],
+  "critical_code_review_comments": [
+    "types/index.ts TickerData interface is missing last_decision?: string and confidence?: number — these are returned by /api/tickers and used in TradingOverview.tsx but not typed. Not a runtime error but a TypeScript type safety gap.",
+    "TickerCard.tsx has symbol-scoped data-testid attrs ({symbol}-config-button, {symbol}-toggle-button) but no root data-testid='ticker-card' — makes cross-card queries hard in tests.",
+    "/metrics Prometheus endpoint is at root path, not /api/metrics — will not route through K8s ingress to backend in production. If Prometheus scraping requires the public URL it won't work. Recommend moving to /api/metrics or documenting internal-only scraping."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_p1_features.py",
+    "/app/backend/tests/test_sentinel_edge.py",
+    "/app/frontend/src/components/dashboards/BrokerHealth.tsx",
+    "/app/frontend/src/components/dashboards/PnLTracking.tsx"
+  ],
+  "success_rate": {
+    "backend": "100% (39/39 P1 tests pass, 40/40 regression tests pass)",
+    "frontend": "100% (all P1 frontend features working)"
+  },
+  "mocked_apis": "Mock Mode is a FRONTEND-ONLY feature. When mockMode=true in Zustand store, TradingOverview calls generateMockTickerList() instead of api.getTickers(). All confirmed MOCKED correctly.",
+  "seed_data_creation": "None — test used add/remove of TEST_REMOVEME ticker which was cleaned up",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "P1 sprint fully tested. Backend: 79/79 tests pass total (39 new in test_p1_features.py + 40 regression in test_sentinel_edge.py). Old test had outdated 'symbol in tickers' check that was fixed (now checks by .symbol key). BrokerHealth.tsx and PnLTracking.tsx now have data-testid='broker-health' and 'pnl-tracking' root attributes added. Main known limitation: Prometheus /metrics endpoint inaccessible via public URL (K8s routing issue). All P1 features confirmed working: enriched tickers, correlation endpoint, mock mode toggle, market breadth, TIGHTEN_TRAILING_STOP Decision enum.",
+  "verified_p1_features": {
+    "enriched_tickers": "PASS — /api/tickers returns objects with symbol, enabled, current_price, orb_levels{}, signal_strength, trend, atr, volume_ratio, last_decision, confidence, last_updated",
+    "correlation_endpoint": "PASS — /api/correlation returns {clusters: [], breadth: {bullish, bearish, neutral, total, bullish_pct, bearish_pct}}. breadth.total=1 when no events (max(...,1) protection working)",
+    "mock_mode_toggle": "PASS — FlaskConical icon button in header, amber styling when ON, shows 'Mock ON' text",
+    "mock_prices": "PASS — Ticker cards show realistic drifted prices near MOCK_BASE_PRICES, trend variation (bullish/bearish/neutral), ORB Range visible, ATR visible",
+    "market_breadth_panel": "PASS — data-testid='market-breadth-panel' visible on Trading Overview with BreadthBar component",
+    "breadth_dynamic_update": "PASS — In mock mode breadth updates every 2s showing bullish/bearish percentages",
+    "system_status_mock": "PASS — System Status card shows 'Mock Mode' / 'Simulated data' when mock ON, 'Running'/'Active' when mock OFF",
+    "simulated_badge": "PASS — 'Simulated prices — updates every 2s' badge visible near Active Tickers heading when mock ON",
+    "all_4_tabs": "PASS — Trading Overview, Broker Health, P&L Tracking, Market Coverage all load correctly",
+    "settings_gear": "PASS — Gear icon opens Prometheus Metrics panel with ORB Levels toggle (green toggle switch)",
+    "tighten_trailing_stop": "PASS — Decision.TIGHTEN_TRAILING_STOP added to engine.py Decision enum; backend starts without import errors; triggers when trailing_enabled + signal_strength >= 7.0 + pnl_pct > 5.0",
+    "mongodb_orb_persistence": "PASS — _persist_orb() and _load_orb_from_db() implemented in scheduler.py with upsert per symbol per day"
+  }
+}

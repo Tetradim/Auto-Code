@@ -56,6 +56,10 @@ class ApiClient {
   async resumeScheduler() {
     return fetchJSON('/api/control/resume', { method: 'POST' });
   }
+
+  async getCorrelation() {
+    return fetchJSON('/api/correlation');
+  }
 }
 
 export const api = new ApiClient();

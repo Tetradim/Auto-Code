@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { TickerData, MarketStatus, SystemStats } from '@/types';
 
+interface CorrelationAlert {
+  direction: 'BULLISH' | 'BEARISH';
+  count: number;
+  symbols: string[];
+  score: number;
+  timestamp: string;
+}
+
 interface EdgeStore {
   // Tickers
   tickers: TickerData[];
@@ -26,23 +34,31 @@ interface EdgeStore {
   // Connection
   connected: boolean;
   setConnected: (connected: boolean) => void;
+
+  // Mock mode toggle
+  mockMode: boolean;
+  setMockMode: (enabled: boolean) => void;
+
+  // Correlation alerts
+  correlationAlerts: CorrelationAlert[];
+  setCorrelationAlerts: (alerts: CorrelationAlert[]) => void;
+  addCorrelationAlert: (alert: CorrelationAlert) => void;
 }
 
 export const useStore = create<EdgeStore>((set) => ({
   // Tickers
   tickers: [],
   setTickers: (tickers) => set({ tickers }),
-  addTicker: (ticker) => set((state) => ({ 
-    tickers: [...state.tickers, ticker] 
-  })),
-  removeTicker: (symbol) => set((state) => ({ 
-    tickers: state.tickers.filter(t => t.symbol !== symbol) 
-  })),
-  updateTicker: (symbol, updates) => set((state) => ({
-    tickers: state.tickers.map(t => 
-      t.symbol === symbol ? { ...t, ...updates } : t
-    )
-  })),
+  addTicker: (ticker) =>
+    set((state) => ({ tickers: [...state.tickers, ticker] })),
+  removeTicker: (symbol) =>
+    set((state) => ({ tickers: state.tickers.filter((t) => t.symbol !== symbol) })),
+  updateTicker: (symbol, updates) =>
+    set((state) => ({
+      tickers: state.tickers.map((t) =>
+        t.symbol === symbol ? { ...t, ...updates } : t,
+      ),
+    })),
 
   // Markets
   markets: {},
@@ -61,4 +77,16 @@ export const useStore = create<EdgeStore>((set) => ({
   // Connection
   connected: false,
   setConnected: (connected) => set({ connected }),
+
+  // Mock mode
+  mockMode: false,
+  setMockMode: (mockMode) => set({ mockMode }),
+
+  // Correlation alerts
+  correlationAlerts: [],
+  setCorrelationAlerts: (correlationAlerts) => set({ correlationAlerts }),
+  addCorrelationAlert: (alert) =>
+    set((state) => ({
+      correlationAlerts: [alert, ...state.correlationAlerts].slice(0, 20),
+    })),
 }));

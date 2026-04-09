@@ -41,7 +41,7 @@ export const PnLTracking: React.FC = () => {
   const maxDrawdown = -3.2; // Mock data
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="pnl-tracking">
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard

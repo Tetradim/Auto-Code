@@ -72,7 +72,8 @@ async def lifespan(app: FastAPI):
         atr_calculator=atr_calculator,
         signal_engine=signal_engine,
         decision_engine=decision_engine,
-        market_hours=market_hours
+        market_hours=market_hours,
+        db=db,
     )
     
     # Start scheduler in background
@@ -131,14 +132,28 @@ async def health():
 
 @api_router.get("/tickers")
 async def get_tickers():
-    """Get active tickers"""
+    """Get active tickers with enriched live data"""
     if not scheduler:
-        return {"tickers": []}
-    
-    return {
-        "tickers": scheduler.active_tickers,
-        "count": len(scheduler.active_tickers)
-    }
+        return {"tickers": [], "count": 0}
+
+    enriched = []
+    for symbol in scheduler.active_tickers:
+        state = scheduler.ticker_state.get(symbol) or {
+            "symbol": symbol,
+            "enabled": True,
+            "current_price": None,
+            "orb_levels": {},
+            "signal_strength": 0.0,
+            "trend": "neutral",
+            "atr": None,
+            "volume_ratio": None,
+            "last_decision": None,
+            "confidence": 0.0,
+            "last_updated": None,
+        }
+        enriched.append(state)
+
+    return {"tickers": enriched, "count": len(enriched)}
 
 
 @api_router.post("/tickers/{symbol}")
@@ -261,6 +276,17 @@ async def get_orb_levels(symbol: str):
         }
     
     return result
+
+
+@api_router.get("/correlation")
+async def get_correlation():
+    """Get correlation cluster data and market breadth"""
+    if not scheduler:
+        return {"clusters": [], "breadth": {}}
+    return {
+        "clusters": scheduler.correlation.get_recent_clusters(),
+        "breadth": scheduler.correlation.get_current_breadth(),
+    }
 
 
 @api_router.get("/markets")

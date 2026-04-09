@@ -11,6 +11,7 @@ class Decision(Enum):
     BUY = "buy"
     STOP_BUYING = "stop_buying"
     ENABLE_TRAILING_STOP = "enable_trailing_stop"
+    TIGHTEN_TRAILING_STOP = "tighten_trailing_stop"   # auto-tighten on strong move
     TIGHTEN_STOP = "tighten_stop"
     HOLD = "hold"
     EMERGENCY_EXIT = "emergency_exit"
@@ -100,6 +101,19 @@ class DecisionEngine:
         # ═══════════════════════════════════════════════════════════
         
         if has_position:
+            # Strong move while already trailing — auto-tighten to 0.5 %
+            if (
+                trailing_enabled
+                and signal_strength >= 7.0
+                and pnl_pct > 5.0
+            ):
+                logger.info(
+                    f"🎯 {symbol}: Strong move + profit >{pnl_pct:.1f}% → tightening trailing stop"
+                )
+                decision = Decision.TIGHTEN_TRAILING_STOP
+                edge_decision_total.labels(symbol=symbol, decision=decision.value).inc()
+                return decision
+
             # Already in profit - enable trailing stop
             if pnl_pct > self.TRAILING_STOP_PROFIT_THRESHOLD and not trailing_enabled:
                 logger.info(
