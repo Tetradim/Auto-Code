@@ -313,12 +313,6 @@ app.add_middleware(
 )
 
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    """Close database connection"""
-    client.close()
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)

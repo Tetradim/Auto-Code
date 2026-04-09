@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, Clock, MapPin, DollarSign } from 'lucide-react';
+import { Globe, Clock, DollarSign } from 'lucide-react';
 import { MetricCard } from '../cards/MetricCard';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
@@ -16,35 +16,58 @@ interface Market {
   minutes_to_close: number;
 }
 
+const MARKET_META: Record<string, { name: string; flag: string; timezone: string; currency: string }> = {
+  NYSE:   { name: 'NYSE',           flag: '🇺🇸', timezone: 'ET',  currency: 'USD' },
+  NASDAQ: { name: 'NASDAQ',         flag: '🇺🇸', timezone: 'ET',  currency: 'USD' },
+  LSE:    { name: 'London LSE',     flag: '🇬🇧', timezone: 'GMT', currency: 'GBP' },
+  TSE:    { name: 'Tokyo TSE',      flag: '🇯🇵', timezone: 'JST', currency: 'JPY' },
+  HKEX:   { name: 'Hong Kong HKEX', flag: '🇭🇰', timezone: 'HKT', currency: 'HKD' },
+  SSE:    { name: 'Shanghai SSE',   flag: '🇨🇳', timezone: 'CST', currency: 'CNY' },
+  BSE:    { name: 'India BSE',      flag: '🇮🇳', timezone: 'IST', currency: 'INR' },
+};
+
+const INITIAL_MARKETS: Market[] = Object.entries(MARKET_META).map(([code, meta]) => ({
+  code,
+  ...meta,
+  open: false,
+  lunch_break: false,
+  minutes_to_close: 0,
+}));
+
 export const MarketCoverage: React.FC = () => {
-  const { markets, setMarkets } = useStore();
-  const [marketsList, setMarketsList] = useState<Market[]>([
-    { code: 'US', name: 'NYSE/NASDAQ', flag: '🇺🇸', timezone: 'ET', currency: 'USD', open: true, lunch_break: false, minutes_to_close: 240 },
-    { code: 'HK', name: 'HKEX', flag: '🇭🇰', timezone: 'HKT', currency: 'HKD', open: false, lunch_break: false, minutes_to_close: 0 },
-    { code: 'AU', name: 'ASX', flag: '🇦🇺', timezone: 'AEST', currency: 'AUD', open: false, lunch_break: false, minutes_to_close: 0 },
-    { code: 'UK', name: 'LSE', flag: '🇬🇧', timezone: 'GMT', currency: 'GBP', open: false, lunch_break: false, minutes_to_close: 0 },
-    { code: 'CA', name: 'TSX', flag: '🇨🇦', timezone: 'ET', currency: 'CAD', open: true, lunch_break: false, minutes_to_close: 240 },
-    { code: 'CN_SS', name: 'Shanghai SSE', flag: '🇨🇳', timezone: 'CST', currency: 'CNY', open: false, lunch_break: false, minutes_to_close: 0 },
-    { code: 'CN_SZ', name: 'Shenzhen SZSE', flag: '🇨🇳', timezone: 'CST', currency: 'CNY', open: false, lunch_break: false, minutes_to_close: 0 },
-  ]);
+  const { setMarkets } = useStore();
+  const [marketsList, setMarketsList] = useState<Market[]>(INITIAL_MARKETS);
 
   useEffect(() => {
     loadMarkets();
-    const interval = setInterval(loadMarkets, 60000); // Refresh every minute
+    const interval = setInterval(loadMarkets, 60000);
     return () => clearInterval(interval);
   }, []);
 
   const loadMarkets = async () => {
     try {
       const data = await api.getMarkets();
+      // Sync Zustand store
       setMarkets(data);
+      // Update local list from live API data
+      const updated: Market[] = Object.entries(data).map(([code, status]: [string, any]) => ({
+        code,
+        name: MARKET_META[code]?.name ?? code,
+        flag: MARKET_META[code]?.flag ?? '🌍',
+        timezone: MARKET_META[code]?.timezone ?? 'UTC',
+        currency: MARKET_META[code]?.currency ?? '',
+        open: status.open,
+        lunch_break: status.lunch_break,
+        minutes_to_close: status.minutes_to_close,
+      }));
+      setMarketsList(updated);
     } catch (error) {
       console.error('Failed to load markets:', error);
     }
   };
 
-  const openMarkets = marketsList.filter(m => m.open).length;
-  const lunchBreakMarkets = marketsList.filter(m => m.lunch_break).length;
+  const openMarkets = marketsList.filter((m) => m.open).length;
+  const lunchBreakMarkets = marketsList.filter((m) => m.lunch_break).length;
   const totalMarkets = marketsList.length;
 
   const getStatusColor = (market: Market) => {
@@ -54,16 +77,18 @@ export const MarketCoverage: React.FC = () => {
   };
 
   const getStatusBadge = (market: Market) => {
-    if (market.lunch_break) return (
-      <span className="px-3 py-1 rounded-full text-sm font-medium bg-yellow-500/20 text-yellow-400">
-        Lunch Break
-      </span>
-    );
-    if (market.open) return (
-      <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-500/20 text-green-400">
-        Open
-      </span>
-    );
+    if (market.lunch_break)
+      return (
+        <span className="px-3 py-1 rounded-full text-sm font-medium bg-yellow-500/20 text-yellow-400">
+          Lunch Break
+        </span>
+      );
+    if (market.open)
+      return (
+        <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-500/20 text-green-400">
+          Open
+        </span>
+      );
     return (
       <span className="px-3 py-1 rounded-full text-sm font-medium bg-gray-500/20 text-gray-400">
         Closed
@@ -72,7 +97,7 @@ export const MarketCoverage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="market-coverage">
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
@@ -85,7 +110,7 @@ export const MarketCoverage: React.FC = () => {
         <MetricCard
           title="Markets Open"
           value={openMarkets}
-          subtitle={`${((openMarkets / totalMarkets) * 100).toFixed(0)}% active`}
+          subtitle={`${totalMarkets > 0 ? ((openMarkets / totalMarkets) * 100).toFixed(0) : 0}% active`}
           icon={Clock}
           color="green"
         />
@@ -93,7 +118,7 @@ export const MarketCoverage: React.FC = () => {
           title="Lunch Break"
           value={lunchBreakMarkets}
           subtitle="Temporary pause"
-          icon={MapPin}
+          icon={Globe}
           color="yellow"
         />
         <MetricCard
@@ -114,7 +139,7 @@ export const MarketCoverage: React.FC = () => {
               key={market.code}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
+              transition={{ delay: index * 0.05 }}
               className={`relative overflow-hidden rounded-xl border backdrop-blur-sm
                 bg-gradient-to-br ${getStatusColor(market)}
                 shadow-lg hover:shadow-2xl transition-all duration-300`}
@@ -149,16 +174,16 @@ export const MarketCoverage: React.FC = () => {
                       </span>
                     </div>
                     <div className="mt-2 h-1 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
-                        style={{ width: `${(market.minutes_to_close / 390) * 100}%` }}
+                        style={{ width: `${Math.min((market.minutes_to_close / 390) * 100, 100)}%` }}
                       />
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Glow effect */}
+              {/* Glow edge */}
               <div className="absolute inset-0 pointer-events-none">
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
               </div>
@@ -175,15 +200,16 @@ export const MarketCoverage: React.FC = () => {
           {marketsList.map((market) => (
             <div key={market.code} className="flex items-center gap-4">
               <span className="text-2xl w-8">{market.flag}</span>
-              <span className="text-sm text-gray-400 w-32">{market.name}</span>
+              <span className="text-sm text-gray-400 w-32 truncate">{market.name}</span>
               <div className="flex-1 h-8 bg-gray-800 rounded-lg overflow-hidden relative">
                 {market.open && (
-                  <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-green-500/50 to-green-400/30"
+                  <div
+                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-green-500/50 to-green-400/30"
                     style={{ width: '60%' }}
                   />
                 )}
               </div>
-              <span className="text-sm text-gray-500 w-20">{market.timezone}</span>
+              <span className="text-sm text-gray-500 w-12">{market.timezone}</span>
             </div>
           ))}
         </div>

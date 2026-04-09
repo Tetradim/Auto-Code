@@ -155,18 +155,23 @@ export const ChartCard: React.FC<ChartCardProps> = ({
               />
 
               {/* X-axis labels */}
-              {tickIndexes.map((idx) => (
-                <text
-                  key={idx}
-                  x={(idx / (data.length - 1)) * svgW}
-                  y={svgH - 2}
-                  fill="#6b7280"
-                  fontSize="18"
-                  textAnchor="middle"
-                >
-                  {data[idx].timestamp}
-                </text>
-              ))}
+              {tickIndexes.map((idx, i) => {
+                const xPos = (idx / (data.length - 1)) * svgW;
+                const anchor =
+                  i === 0 ? 'start' : i === tickIndexes.length - 1 ? 'end' : 'middle';
+                return (
+                  <text
+                    key={idx}
+                    x={xPos}
+                    y={svgH - 2}
+                    fill="#6b7280"
+                    fontSize="18"
+                    textAnchor={anchor}
+                  >
+                    {data[idx].timestamp}
+                  </text>
+                );
+              })}
             </svg>
           )}
         </div>
