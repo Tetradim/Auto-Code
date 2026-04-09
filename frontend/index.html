@@ -2,12 +2,78 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sentinel Edge - Trading Analyst</title>
-    <meta name="description" content="Real-time trading analyst sidecar with ORB detection, ATR analysis, and Prometheus metrics" />
+    <style>
+      body {
+        margin: 0;
+        background: #030712;
+        color: #f9fafb;
+        font-family: system-ui, -apple-system, sans-serif;
+        padding: 2rem;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+      .logo {
+        width: 48px;
+        height: 48px;
+        background: #10b981;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+      }
+      .card {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+      }
+      .success {
+        background: rgba(16, 185, 129, 0.1);
+        border-color: rgba(16, 185, 129, 0.3);
+        color: #10b981;
+      }
+    </style>
   </head>
   <body>
+    <div class="container">
+      <div class="header">
+        <div class="logo">⚡</div>
+        <div>
+          <h1>Sentinel Edge</h1>
+          <p style="color: #9ca3af; margin: 0;">Trading Analyst Sidecar</p>
+        </div>
+      </div>
+
+      <div class="card success">
+        <h2>✅ Frontend Test Successful!</h2>
+        <p>If you can see this page, the web server is working correctly.</p>
+        <p><strong>Backend URL:</strong> <a href="http://localhost:8001/api/health" target="_blank" style="color: #10b981;">http://localhost:8001/api/health</a></p>
+      </div>
+
+      <div class="card">
+        <h3>Diagnostic Information</h3>
+        <p><strong>Time:</strong> <span id="time"></span></p>
+        <p><strong>User Agent:</strong> <span id="ua"></span></p>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById('time').textContent = new Date().toLocaleString();
+      document.getElementById('ua').textContent = navigator.userAgent;
+    </script>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
