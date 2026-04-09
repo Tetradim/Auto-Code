@@ -88,6 +88,18 @@ Broker Health, P&L Tracking, and Market Coverage.
 - **Backend `/api/decisions`**: returns up to 50 most recent non-HOLD decisions (newest first) ✅
 - Total test coverage: 95/95 (16 new + 79 regression) ✅
 
+### Session 5 (2026-04-09) — Full Analyst Package + LGTM Stack
+- **`analyst/signals/base.py`**: full Signal dataclass (`action, symbol, confidence, reason, timeframe, price, atr, metadata`), `BaseSignal` ABC for drop-in strategies, `SignalConfig` Pydantic base ✅
+- **`analyst/exporters/prometheus.py`**: rich pluggable exporter with `analyst_orb_breakouts_total`, `analyst_atr_value`, `analyst_pulse_overrides_total`, `analyst_signal_latency_seconds`; optional `start_server=True` for dedicated port 8002 ✅
+- **`analyst/observability/otel.py`**: gRPC OTLP exporter (→ Tempo:4317), `HTTPXClientInstrumentor`, `AsyncioInstrumentor`, FastAPI auto-instrumentation ✅
+- **`analyst/correlation/engine.py`**: canonical Signal import from `analyst.signals.base` ✅
+- **`analyst/signals/custom/`**: drop-in strategy directory created ✅
+- **Full LGTM docker-compose**: Loki 2.9.7, Tempo 2.4.1, Promtail, Grafana 10.4.2 + MongoDB replica set init ✅
+- **Two Grafana dashboards**: `analyst-overview.json` (14 panels), `correlation-breadth.json` (7 panels) ✅
+- **Prometheus rules.yml**: 8 alerting rules (EdgeEngineDown, HighConsecutiveLosses, SlowEvaluation, CorrelationBearishCluster, HighDrawdown, etc.) ✅
+- **Root `/app/Dockerfile`** for containerised deployment ✅
+- All confirmed in logs: OTel gRPC exporter, SentinelEdge wired, ORB levels restored from MongoDB
+
 ## Key API Endpoints
 | Method | Path | Description |
 |--------|------|-------------|

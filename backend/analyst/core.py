@@ -51,7 +51,9 @@ class SentinelEdge:
         self.tracer = get_tracer("sentinel.edge")
 
         # Pluggable Prometheus exporter
-        self.prom_exporter = PrometheusExporter()
+        # Set ANALYST_START_METRICS_SERVER=true to expose :8002/metrics separately
+        start_server = os.getenv("ANALYST_START_METRICS_SERVER", "false").lower() == "true"
+        self.prom_exporter = PrometheusExporter(start_server=start_server, port=8002)
 
         # Correlation engine (shared with scheduler via set_scheduler)
         self.correlation = CorrelationEngine(

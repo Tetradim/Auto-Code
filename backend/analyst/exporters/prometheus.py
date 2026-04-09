@@ -1,45 +1,92 @@
-"""Pluggable Prometheus exporter for Sentinel Edge signals."""
+"""Rich Prometheus exporter with pluggable collectors — Sentinel Edge"""
 import logging
 from typing import TYPE_CHECKING
 
-logger = logging.getLogger(__name__)
+from prometheus_client import Counter, Gauge, Histogram, start_http_server as _start_http_server
 
 if TYPE_CHECKING:
     from analyst.signals.base import Signal
 
+logger = logging.getLogger(__name__)
+
+# ── Analyst-specific metrics ──────────────────────────────────────────────────
+# These live on the default REGISTRY so they are exposed by the existing
+# FastAPI /metrics endpoint (port 8001).  When running as a standalone service,
+# call PrometheusExporter(start_server=True) to spin up a dedicated port 8002.
+
+orb_breakouts = Counter(
+    "analyst_orb_breakouts_total",
+    "ORB breakouts detected by the analyst",
+    ["timeframe", "direction", "symbol"],
+)
+
+atr_gauge = Gauge(
+    "analyst_atr_value",
+    "ATR value per symbol as seen by the analyst",
+    ["symbol"],
+)
+
+pulse_overrides = Counter(
+    "analyst_pulse_overrides_total",
+    "Override commands sent to Pulse",
+    ["action"],
+)
+
+signal_latency = Histogram(
+    "analyst_signal_latency_seconds",
+    "Time taken to generate a signal",
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+)
+
 
 class PrometheusExporter:
     """
-    Thin adapter that maps analyst Signal objects onto the existing
-    Prometheus gauges already defined in metrics.py.
+    Pluggable Prometheus exporter.
 
-    Subclass and override ``record_signal`` to add custom collectors
-    without touching the core evaluation loop.
+    In the integrated FastAPI setup (default) the metrics surface at /metrics
+    on the existing port 8001 — no extra server is started.
+
+    For standalone / Docker deployments pass start_server=True to bind a
+    dedicated Prometheus scrape endpoint on `port` (default 8002).
     """
 
+    def __init__(self, start_server: bool = False, port: int = 8002):
+        if start_server:
+            try:
+                _start_http_server(port)
+                logger.info("📊 Prometheus exporter started on :%d/metrics", port)
+            except OSError as exc:
+                logger.warning(
+                    "Could not start metrics server on :%d (%s) — "
+                    "metrics available via existing /metrics endpoint",
+                    port, exc,
+                )
+
+    # ── Record helpers ────────────────────────────────────────────────────
+
     def record_signal(self, symbol: str, signal: "Signal") -> None:
-        """Push signal data into existing Prometheus metrics."""
+        """Push a Signal into Prometheus counters / gauges."""
         try:
-            from metrics import edge_signal_strength, edge_trend_direction
-            if signal.signal_strength:
-                edge_signal_strength.labels(symbol=symbol).set(signal.signal_strength)
+            orb_breakouts.labels(
+                timeframe=signal.timeframe,
+                direction=signal.action.lower(),
+                symbol=symbol,
+            ).inc()
+            if signal.atr > 0:
+                atr_gauge.labels(symbol=symbol).set(signal.atr)
         except Exception as exc:
-            logger.debug("PrometheusExporter.record_signal error: %s", exc)
+            logger.debug("record_signal error: %s", exc)
+
+    def record_override(self, action: str) -> None:
+        try:
+            pulse_overrides.labels(action=action).inc()
+        except Exception as exc:
+            logger.debug("record_override error: %s", exc)
 
     def record_evaluation(self, symbol: str, duration_seconds: float) -> None:
-        """Record evaluation timing."""
+        """Delegate eval timing to the existing edge_eval_duration histogram."""
         try:
             from metrics import edge_eval_duration
             edge_eval_duration.labels(symbol=symbol).observe(duration_seconds)
         except Exception as exc:
-            logger.debug("PrometheusExporter.record_evaluation error: %s", exc)
-
-    def record_cluster(self, direction: str, strength: str) -> None:
-        """Record a correlation cluster detection."""
-        try:
-            from metrics import correlation_clusters_total
-            correlation_clusters_total.labels(
-                direction=direction.lower(), strength=strength
-            ).inc()
-        except Exception as exc:
-            logger.debug("PrometheusExporter.record_cluster error: %s", exc)
+            logger.debug("record_evaluation error: %s", exc)

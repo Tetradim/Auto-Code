@@ -5,25 +5,20 @@ that re-exports from here.
 """
 import logging
 from collections import defaultdict, deque
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import httpx
 
+from analyst.signals.base import Signal  # canonical Signal dataclass
+
 logger = logging.getLogger(__name__)
+
 
 # Lazy-import metrics so this module is usable before FastAPI starts
 def _get_counter():
     from metrics import correlation_clusters_total
     return correlation_clusters_total
-
-
-@dataclass
-class Signal:
-    """Minimal signal container (mirrors analyst.signals.base.Signal)."""
-    action: str          # "BUY" | "SELL" | "STOP_BUYING" | "EMERGENCY_EXIT" | "HOLD"
-    confidence: float = 1.0
 
 
 _BULLISH = {"BUY"}
