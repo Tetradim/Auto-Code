@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Activity, TrendingUp, Zap, CheckCircle, XCircle } from 'lucide-react';
 import { useStore } from './store/useStore';
 
-const BACKEND_URL = 'http://localhost:8001';
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
 export default function App() {
   const { connected, setConnected } = useStore();
@@ -15,6 +15,7 @@ export default function App() {
 
   const checkBackend = async () => {
     try {
+      console.log('🔍 Fetching from:', `${BACKEND_URL}/api/health`);
       const response = await fetch(`${BACKEND_URL}/api/health`);
       const health = await response.json();
       setConnected(true);
@@ -39,7 +40,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-white">Sentinel Edge</h1>
-              <p className="text-gray-400">Zustand + Fetch (No Axios)</p>
+              <p className="text-gray-400">Production Ready!</p>
             </div>
           </div>
 
@@ -55,22 +56,29 @@ export default function App() {
             ) : (
               <>
                 <XCircle className="w-4 h-4" />
-                <span>Disconnected</span>
+                <span>{loading ? 'Connecting...' : 'Disconnected'}</span>
               </>
             )}
           </div>
         </div>
 
         {/* Success Box */}
-        <div className="bg-emerald-500/10 border-2 border-emerald-500 rounded-xl p-6 mb-6">
-          <h2 className="text-2xl font-bold text-emerald-400 mb-2">
-            ✅ Testing: React + Tailwind + Icons + Zustand + Fetch
+        <div className={`border-2 rounded-xl p-6 mb-6 ${
+          connected 
+            ? 'bg-emerald-500/10 border-emerald-500' 
+            : 'bg-yellow-500/10 border-yellow-500'
+        }`}>
+          <h2 className={`text-2xl font-bold mb-2 ${
+            connected ? 'text-emerald-400' : 'text-yellow-400'
+          }`}>
+            {connected ? '✅ All Systems Operational!' : '⚠️ Connecting to Backend...'}
           </h2>
           <p className="text-gray-300 mb-3">
             {loading ? 'Loading backend data...' : 
-              connected ? 'Successfully fetched data from backend!' : 
-              'Could not connect to backend'}
+              connected ? 'Successfully connected to Sentinel Edge backend!' : 
+              'Check browser console (F12) for connection details'}
           </p>
+          <p className="text-xs text-gray-500 mb-2">Backend URL: {BACKEND_URL}</p>
           {stats && (
             <div className="text-sm text-gray-400 space-y-1">
               <p>• Backend Status: {stats.running ? '✓ Running' : '✗ Stopped'}</p>
@@ -85,21 +93,21 @@ export default function App() {
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <Activity className="w-8 h-8 text-blue-400 mb-2" />
             <div className="text-2xl font-bold text-white">
-              {stats?.running ? '✓' : '✗'}
+              {stats?.running ? '✓' : loading ? '...' : '✗'}
             </div>
             <p className="text-sm text-gray-400">Backend Status</p>
           </div>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <TrendingUp className="w-8 h-8 text-green-400 mb-2" />
             <div className="text-2xl font-bold text-white">
-              {stats?.active_tickers || 0}
+              {stats?.active_tickers ?? (loading ? '...' : '0')}
             </div>
             <p className="text-sm text-gray-400">Active Tickers</p>
           </div>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <Zap className="w-8 h-8 text-purple-400 mb-2" />
             <div className="text-2xl font-bold text-white">30+</div>
-            <p className="text-sm text-gray-400">Metrics</p>
+            <p className="text-sm text-gray-400">Prometheus Metrics</p>
           </div>
         </div>
       </div>
