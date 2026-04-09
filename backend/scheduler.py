@@ -63,6 +63,9 @@ class EvaluationScheduler:
         # Enriched per-ticker state for the API
         self.ticker_state: Dict[str, Dict] = {}
 
+        # Recent non-HOLD decisions for the decision feed (newest first)
+        self.recent_decisions: list = []
+
         # Correlation engine
         self.correlation = CorrelationEngine()
 
@@ -179,6 +182,20 @@ class EvaluationScheduler:
                 self.correlation.record_signal(
                     symbol, "STOP_BUYING", min(abs(signal_strength) / 10.0, 1.0)
                 )
+
+            # ── Record decision for feed (skip HOLD) ─────────────────────
+            if decision != Decision.HOLD:
+                entry = {
+                    "symbol": symbol,
+                    "decision": decision.value,
+                    "signal_strength": round(signal_strength, 2),
+                    "trend": trend.name.lower(),
+                    "confidence": round(min(abs(signal_strength) / 10.0, 1.0), 3),
+                    "price": round(price, 4),
+                    "timestamp": now.isoformat(),
+                }
+                self.recent_decisions.insert(0, entry)
+                self.recent_decisions = self.recent_decisions[:50]
 
             # ── Store enriched ticker state (for /api/tickers) ────────────
             orb_data: Dict[str, Dict] = {}

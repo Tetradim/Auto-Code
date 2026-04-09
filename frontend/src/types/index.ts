@@ -53,3 +53,13 @@ export interface ChartDataPoint {
   value: number;
   label?: string;
 }
+
+export interface DecisionEntry {
+  symbol: string;
+  decision: string;
+  signal_strength: number;
+  trend: string;
+  confidence: number;
+  price: number;
+  timestamp: string;
+}

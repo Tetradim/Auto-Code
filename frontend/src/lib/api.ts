@@ -60,6 +60,10 @@ class ApiClient {
   async getCorrelation() {
     return fetchJSON('/api/correlation');
   }
+
+  async getDecisions() {
+    return fetchJSON('/api/decisions');
+  }
 }
 
 export const api = new ApiClient();

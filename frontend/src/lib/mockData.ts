@@ -78,3 +78,35 @@ export const DEFAULT_MOCK_SYMBOLS = ['SPY', 'QQQ', 'NVDA', 'AAPL'];
 export function generateMockTickerList(symbols: string[] = DEFAULT_MOCK_SYMBOLS): TickerData[] {
   return symbols.map(generateMockTicker);
 }
+
+// ── Mock decisions ────────────────────────────────────────────────────
+
+import type { DecisionEntry } from '../types';
+
+const MOCK_DECISION_OPTIONS = [
+  'buy', 'stop_buying', 'enable_trailing_stop', 'tighten_trailing_stop', 'emergency_exit',
+];
+
+export function generateMockDecision(symbol: string): DecisionEntry {
+  const dec = MOCK_DECISION_OPTIONS[Math.floor(Math.random() * MOCK_DECISION_OPTIONS.length)];
+  const rawSignal = parseFloat(((Math.random() - 0.4) * 14).toFixed(1));
+  const signal = Math.max(-10, Math.min(10, rawSignal));
+  return {
+    symbol,
+    decision: dec,
+    signal_strength: signal,
+    trend: signal >= 2 ? 'bullish' : signal <= -2 ? 'bearish' : 'neutral',
+    confidence: parseFloat(Math.min(Math.abs(signal) / 10, 1).toFixed(2)),
+    price: _mockPrices[symbol] || MOCK_BASE_PRICES[symbol] || 100,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export function generateMockDecisions(
+  symbols: string[] = DEFAULT_MOCK_SYMBOLS,
+  chancePct = 0.4,
+): DecisionEntry[] {
+  return symbols
+    .filter(() => Math.random() < chancePct)
+    .map(generateMockDecision);
+}

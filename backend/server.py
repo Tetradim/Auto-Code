@@ -278,6 +278,17 @@ async def get_orb_levels(symbol: str):
     return result
 
 
+@api_router.get("/decisions")
+async def get_decisions():
+    """Recent non-HOLD trading decisions (decision feed)"""
+    if not scheduler:
+        return {"decisions": [], "count": 0}
+    return {
+        "decisions": scheduler.recent_decisions[:50],
+        "count": len(scheduler.recent_decisions),
+    }
+
+
 @api_router.get("/correlation")
 async def get_correlation():
     """Get correlation cluster data and market breadth"""

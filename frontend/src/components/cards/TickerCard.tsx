@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TrendingUp, TrendingDown, Activity, DollarSign, Target, Settings, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, DollarSign, Target, Settings, X, Trash2 } from 'lucide-react';
 
 interface MetricToggles {
   orb: boolean;
@@ -26,6 +26,7 @@ interface TickerCardProps {
   onToggle?: () => void;
   onConfigure?: () => void;
   onMetricToggle?: (metric: keyof MetricToggles) => void;
+  onRemove?: () => void;
 }
 
 const defaultMetricToggles: MetricToggles = {
@@ -66,6 +67,7 @@ export const TickerCard: React.FC<TickerCardProps> = ({
   metricToggles = defaultMetricToggles,
   onToggle,
   onMetricToggle,
+  onRemove,
 }) => {
   const [showConfig, setShowConfig] = useState(false);
 
@@ -161,6 +163,17 @@ export const TickerCard: React.FC<TickerCardProps> = ({
             >
               {enabled ? 'Active' : 'Paused'}
             </button>
+
+            {onRemove && (
+              <button
+                onClick={onRemove}
+                data-testid={`${symbol}-remove-button`}
+                title={`Remove ${symbol}`}
+                className="p-2 rounded-lg bg-red-500/10 text-red-400/60 hover:bg-red-500/20 hover:text-red-400 transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>
