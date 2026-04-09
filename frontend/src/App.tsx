@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, TrendingUp, Zap, CheckCircle, XCircle } from 'lucide-react';
-import { api } from './lib/api';
+import { useStore } from './store/useStore';
+
+const BACKEND_URL = 'http://localhost:8001';
 
 export default function App() {
-  const [connected, setConnected] = useState(false);
+  const { connected, setConnected } = useStore();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -13,13 +15,14 @@ export default function App() {
 
   const checkBackend = async () => {
     try {
-      const health = await api.getHealth();
+      const response = await fetch(`${BACKEND_URL}/api/health`);
+      const health = await response.json();
       setConnected(true);
       setStats(health);
       setLoading(false);
       console.log('✅ Backend data:', health);
     } catch (error) {
-      console.error('❌ API Error:', error);
+      console.error('❌ Fetch Error:', error);
       setConnected(false);
       setLoading(false);
     }
@@ -36,7 +39,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-white">Sentinel Edge</h1>
-              <p className="text-gray-400">Testing API without Zustand</p>
+              <p className="text-gray-400">Zustand + Fetch (No Axios)</p>
             </div>
           </div>
 
@@ -61,7 +64,7 @@ export default function App() {
         {/* Success Box */}
         <div className="bg-emerald-500/10 border-2 border-emerald-500 rounded-xl p-6 mb-6">
           <h2 className="text-2xl font-bold text-emerald-400 mb-2">
-            ✅ Testing: React + Tailwind + Icons + Axios (No Zustand)
+            ✅ Testing: React + Tailwind + Icons + Zustand + Fetch
           </h2>
           <p className="text-gray-300 mb-3">
             {loading ? 'Loading backend data...' : 
