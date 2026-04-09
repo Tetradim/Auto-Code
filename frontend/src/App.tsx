@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, TrendingUp, Zap, CheckCircle, XCircle } from 'lucide-react';
-import { useStore } from './store/useStore';
 import { api } from './lib/api';
 
 export default function App() {
-  const { connected, setConnected, stats, setStats } = useStore();
+  const [connected, setConnected] = useState(false);
+  const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -15,17 +15,11 @@ export default function App() {
     try {
       const health = await api.getHealth();
       setConnected(true);
-      setStats({
-        active_tickers: health.active_tickers || 0,
-        running: health.running || false,
-        paused: health.paused || false,
-        orb_levels_count: 0,
-        pulse_circuit_state: 'CLOSED',
-        pulse_failures: 0,
-      });
+      setStats(health);
       setLoading(false);
+      console.log('✅ Backend data:', health);
     } catch (error) {
-      console.error('API Error:', error);
+      console.error('❌ API Error:', error);
       setConnected(false);
       setLoading(false);
     }
@@ -42,7 +36,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-white">Sentinel Edge</h1>
-              <p className="text-gray-400">Store + API Working!</p>
+              <p className="text-gray-400">Testing API without Zustand</p>
             </div>
           </div>
 
@@ -67,7 +61,7 @@ export default function App() {
         {/* Success Box */}
         <div className="bg-emerald-500/10 border-2 border-emerald-500 rounded-xl p-6 mb-6">
           <h2 className="text-2xl font-bold text-emerald-400 mb-2">
-            ✅ React + Tailwind + Icons + Store + API Working!
+            ✅ Testing: React + Tailwind + Icons + Axios (No Zustand)
           </h2>
           <p className="text-gray-300 mb-3">
             {loading ? 'Loading backend data...' : 
@@ -75,7 +69,7 @@ export default function App() {
               'Could not connect to backend'}
           </p>
           {stats && (
-            <div className="text-sm text-gray-400">
+            <div className="text-sm text-gray-400 space-y-1">
               <p>• Backend Status: {stats.running ? '✓ Running' : '✗ Stopped'}</p>
               <p>• Active Tickers: {stats.active_tickers}</p>
               <p>• Paused: {stats.paused ? 'Yes' : 'No'}</p>
