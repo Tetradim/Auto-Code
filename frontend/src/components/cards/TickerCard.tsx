@@ -120,6 +120,7 @@ export const TickerCard: React.FC<TickerCardProps> = ({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ scale: 1.02 }}
+      data-testid="ticker-card"
       className={`relative overflow-hidden rounded-xl border backdrop-blur-sm
         bg-gradient-to-br ${getSignalColor()}
         shadow-lg hover:shadow-2xl transition-all duration-300

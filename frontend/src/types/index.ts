@@ -12,6 +12,9 @@ export interface TickerData {
   trend?: string;
   atr?: number;
   volume_ratio?: number;
+  last_decision?: string;
+  confidence?: number;
+  last_updated?: string;
 }
 
 export interface OrbLevel {

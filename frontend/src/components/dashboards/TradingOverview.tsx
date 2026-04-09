@@ -201,6 +201,12 @@ export const TradingOverview: React.FC = () => {
         </div>
         <BreadthBar breadth={breadth} />
 
+        {breadth.total <= 1 && !mockMode && (
+          <p className="mt-2 text-xs text-gray-500 italic">
+            No directional signals in current window — awaiting BUY / STOP_BUYING events
+          </p>
+        )}
+
         {/* Correlation cluster alerts */}
         <AnimatePresence>
           {correlationAlerts.slice(0, 3).map((alert, i) => (
