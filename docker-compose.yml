@@ -1,7 +1,17 @@
 version: '3.9'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Sentinel Edge — Full LGTM Stack
+#   Metrics:  Prometheus  → Grafana
+#   Logs:     Promtail    → Loki       → Grafana
+#   Traces:   OTLP (OTel) → Tempo      → Grafana
+#   Alerts:   Prometheus  → Alertmanager
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
-  # Sentinel Edge Backend
+
+  # ── Application ────────────────────────────────────────────────────────────
+
   sentinel-edge:
     build:
       context: ./backend
@@ -14,10 +24,13 @@ services:
       - DB_NAME=sentinel_edge
       - PULSE_API_URL=http://pulse:8002
       - CORS_ORIGINS=*
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+      - OTEL_SERVICE_NAME=sentinel-edge
     volumes:
-      - ./backend:/app/backend
+      - ./backend:/app
     depends_on:
       - mongodb
+      - tempo
     networks:
       - sentinel-net
     restart: unless-stopped
@@ -26,8 +39,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    labels:
+      logging: "promtail"
+      service: "sentinel-edge"
 
-  # MongoDB
+  # ── Data ───────────────────────────────────────────────────────────────────
+
   mongodb:
     image: mongo:7.0
     container_name: sentinel-mongodb
@@ -38,30 +55,117 @@ services:
     networks:
       - sentinel-net
     restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    # Replica set required for Change Streams
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Prometheus
+  mongodb-init:
+    image: mongo:7.0
+    container_name: sentinel-mongodb-init
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - sentinel-net
+    # One-shot: initialise replica set so Change Streams work
+    entrypoint: >
+      mongosh --host mongodb:27017 --eval
+      "try { rs.status() } catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'mongodb:27017'}]}) }"
+    restart: "no"
+
+  # ── Metrics ────────────────────────────────────────────────────────────────
+
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.51.0
     container_name: sentinel-prometheus
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./prometheus/alerts:/etc/prometheus/alerts
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
     networks:
       - sentinel-net
     restart: unless-stopped
 
-  # Grafana
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: sentinel-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - sentinel-net
+    restart: unless-stopped
+
+  # ── Logs ───────────────────────────────────────────────────────────────────
+
+  loki:
+    image: grafana/loki:2.9.7
+    container_name: sentinel-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - sentinel-net
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.7
+    container_name: sentinel-promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/docker-config.yaml
+    depends_on:
+      - loki
+    networks:
+      - sentinel-net
+    restart: unless-stopped
+
+  # ── Traces ─────────────────────────────────────────────────────────────────
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: sentinel-tempo
+    ports:
+      - "3200:3200"     # Tempo UI / query
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP  ← backend sends traces here
+    volumes:
+      - tempo-data:/var/tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    # Inline minimal Tempo config
+    configs:
+      - source: tempo_config
+        target: /etc/tempo.yaml
+    networks:
+      - sentinel-net
+    restart: unless-stopped
+
+  # ── Observability UI ───────────────────────────────────────────────────────
+
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.2
     container_name: sentinel-grafana
     ports:
       - "3001:3000"
@@ -70,32 +174,54 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=sentinel123
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3001
-      - GF_INSTALL_PLUGINS=
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     depends_on:
       - prometheus
+      - loki
+      - tempo
     networks:
       - sentinel-net
     restart: unless-stopped
 
-  # Alertmanager (Optional)
-  alertmanager:
-    image: prom/alertmanager:latest
-    container_name: sentinel-alertmanager
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml
-      - alertmanager-data:/alertmanager
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-    networks:
-      - sentinel-net
-    restart: unless-stopped
+# ── Configs (inline) ──────────────────────────────────────────────────────────
+
+configs:
+  tempo_config:
+    content: |
+      server:
+        http_listen_port: 3200
+      distributor:
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 0.0.0.0:4317
+              http:
+                endpoint: 0.0.0.0:4318
+      ingester:
+        max_block_duration: 5m
+      compactor:
+        compaction:
+          block_retention: 48h
+      storage:
+        trace:
+          backend: local
+          wal:
+            path: /var/tempo/wal
+          local:
+            path: /var/tempo/blocks
+      query_frontend:
+        search:
+          duration_slo: 5s
+          throughput_bytes_slo: 1.073741824e+09
+        trace_by_id:
+          duration_slo: 5s
+
+# ── Networks & Volumes ────────────────────────────────────────────────────────
 
 networks:
   sentinel-net:
@@ -106,3 +232,5 @@ volumes:
   prometheus-data:
   grafana-data:
   alertmanager-data:
+  loki-data:
+  tempo-data:

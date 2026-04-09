@@ -23,6 +23,10 @@ from pulse_client import PulseClient
 from scheduler import EvaluationScheduler
 from signals import SignalEngine
 
+# Sentinel Edge analyst package
+from analyst.core import SentinelEdge
+from analyst.observability.otel import instrument_fastapi
+
 # Setup
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -39,32 +43,37 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Global scheduler instance
+# Global instances
 scheduler: EvaluationScheduler = None
 scheduler_task = None
+edge: SentinelEdge = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle management"""
-    global scheduler, scheduler_task
-    
+    global scheduler, scheduler_task, edge
+
     logger.info("🚀 Starting Sentinel Edge...")
-    
+
     # Initialize components
     pulse_client = PulseClient(
         base_url=os.getenv("PULSE_API_URL", "http://localhost:8002"),
         api_key=os.getenv("PULSE_API_KEY")
     )
-    
+
     price_fetcher = PriceFetcher()
     orb_tracker = ORBTracker()
     atr_calculator = ATRCalculator(period=14)
     signal_engine = SignalEngine()
     decision_engine = DecisionEngine()
     market_hours = MarketHours()
-    
-    # Initialize scheduler
+
+    # Build SentinelEdge orchestrator (OTel, WebSocket, change streams)
+    pulse_url = os.getenv("PULSE_API_URL", "http://localhost:8002")
+    edge = SentinelEdge(db=db, pulse_url=pulse_url)
+
+    # Initialize scheduler and wire correlation engine from SentinelEdge
     scheduler = EvaluationScheduler(
         pulse_client=pulse_client,
         price_fetcher=price_fetcher,
@@ -75,16 +84,20 @@ async def lifespan(app: FastAPI):
         market_hours=market_hours,
         db=db,
     )
-    
-    # Start scheduler in background
+    edge.set_scheduler(scheduler)   # shares correlation engine + adds tracing
+
+    # Start scheduler (main evaluation loop)
     scheduler_task = asyncio.create_task(scheduler.run())
-    
+
+    # Start SentinelEdge ancillary tasks (WebSocket + MongoDB change stream)
+    await edge.start_background_tasks()
+
     logger.info("✅ Sentinel Edge started successfully")
-    
     yield
-    
+
     # Shutdown
     logger.info("🛑 Shutting down Sentinel Edge...")
+    edge.stop()
     if scheduler:
         scheduler.stop()
     if scheduler_task:
@@ -100,6 +113,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# OpenTelemetry FastAPI auto-instrumentation (request spans)
+instrument_fastapi(app)
 
 # Create router with /api prefix
 api_router = APIRouter(prefix="/api")

@@ -1,0 +1,88 @@
+{
+  "dashboard": {
+    "title": "Sentinel Edge — Correlation Breadth",
+    "uid": "se-correlation-breadth",
+    "tags": ["sentinel-edge", "correlation", "breadth"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "10s",
+    "time": {"from": "now-3h", "to": "now"},
+    "panels": [
+      {
+        "id": 1, "type": "stat", "title": "Total Clusters (all time)",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [{"expr": "sum(analyst_correlation_clusters_total)", "refId": "A"}],
+        "options": {"graphMode": "area", "colorMode": "value"}
+      },
+      {
+        "id": 2, "type": "stat", "title": "Bullish Clusters",
+        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+        "targets": [{"expr": "sum(analyst_correlation_clusters_total{direction=\"bullish\"})", "refId": "A"}],
+        "fieldConfig": {"defaults": {"color": {"fixedColor": "green", "mode": "fixed"}}}
+      },
+      {
+        "id": 3, "type": "stat", "title": "Bearish Clusters",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [{"expr": "sum(analyst_correlation_clusters_total{direction=\"bearish\"})", "refId": "A"}],
+        "fieldConfig": {"defaults": {"color": {"fixedColor": "red", "mode": "fixed"}}}
+      },
+      {
+        "id": 4, "type": "stat", "title": "High-Strength Clusters",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [{"expr": "sum(analyst_correlation_clusters_total{strength=\"high\"})", "refId": "A"}],
+        "fieldConfig": {"defaults": {"color": {"fixedColor": "orange", "mode": "fixed"}}}
+      },
+      {
+        "id": 10, "type": "timeseries", "title": "Cluster Detection Rate",
+        "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
+        "targets": [
+          {"expr": "rate(analyst_correlation_clusters_total{direction=\"bullish\"}[5m])", "refId": "A", "legendFormat": "Bullish clusters/s"},
+          {"expr": "rate(analyst_correlation_clusters_total{direction=\"bearish\"}[5m])", "refId": "B", "legendFormat": "Bearish clusters/s"}
+        ],
+        "fieldConfig": {
+          "overrides": [
+            {"matcher": {"id": "byName", "options": "Bullish clusters/s"}, "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]},
+            {"matcher": {"id": "byName", "options": "Bearish clusters/s"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]}
+          ]
+        },
+        "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+      },
+      {
+        "id": 20, "type": "piechart", "title": "Cluster Direction Distribution",
+        "gridPos": {"x": 0, "y": 12, "w": 8, "h": 8},
+        "targets": [
+          {"expr": "sum(analyst_correlation_clusters_total{direction=\"bullish\"})", "refId": "A", "legendFormat": "Bullish"},
+          {"expr": "sum(analyst_correlation_clusters_total{direction=\"bearish\"})", "refId": "B", "legendFormat": "Bearish"}
+        ],
+        "options": {"pieType": "donut", "legend": {"displayMode": "table", "placement": "right"}}
+      },
+      {
+        "id": 21, "type": "piechart", "title": "Cluster Strength Distribution",
+        "gridPos": {"x": 8, "y": 12, "w": 8, "h": 8},
+        "targets": [
+          {"expr": "sum(analyst_correlation_clusters_total{strength=\"high\"})", "refId": "A", "legendFormat": "High (>70%)"},
+          {"expr": "sum(analyst_correlation_clusters_total{strength=\"medium\"})", "refId": "B", "legendFormat": "Medium (≤70%)"}
+        ],
+        "options": {"pieType": "donut", "legend": {"displayMode": "table", "placement": "right"}}
+      },
+      {
+        "id": 22, "type": "timeseries", "title": "Market Breadth — Signal Activity",
+        "description": "Rate of BUY vs STOP_BUYING decisions acts as a proxy for market breadth.",
+        "gridPos": {"x": 16, "y": 12, "w": 8, "h": 8},
+        "targets": [
+          {"expr": "sum(rate(edge_decision_total{decision=\"buy\"}[2m]))", "refId": "A", "legendFormat": "BUY rate"},
+          {"expr": "sum(rate(edge_decision_total{decision=\"stop_buying\"}[2m]))", "refId": "B", "legendFormat": "STOP rate"},
+          {"expr": "sum(rate(edge_decision_total{decision=\"emergency_exit\"}[2m]))", "refId": "C", "legendFormat": "EXIT rate"}
+        ],
+        "fieldConfig": {
+          "overrides": [
+            {"matcher": {"id": "byName", "options": "BUY rate"}, "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]},
+            {"matcher": {"id": "byName", "options": "STOP rate"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]},
+            {"matcher": {"id": "byName", "options": "EXIT rate"}, "properties": [{"id": "color", "value": {"fixedColor": "dark-red", "mode": "fixed"}}]}
+          ]
+        }
+      }
+    ]
+  }
+}

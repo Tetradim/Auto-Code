@@ -1,0 +1,91 @@
+groups:
+  - name: sentinel_edge
+    interval: 15s
+    rules:
+
+      # ── Engine health ───────────────────────────────────────────────────
+
+      - alert: EdgeEngineDown
+        expr: edge_engine_running == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: sentinel-edge
+        annotations:
+          summary: "Sentinel Edge evaluation engine is not running"
+          description: "edge_engine_running=0 for more than 1 minute."
+
+      - alert: EdgeEnginePaused
+        expr: edge_engine_paused == 1
+        for: 10m
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "Sentinel Edge engine has been paused for >10 minutes"
+
+      # ── Signal quality ──────────────────────────────────────────────────
+
+      - alert: HighConsecutiveLosses
+        expr: edge_consecutive_losses > 3
+        for: 0m
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "High consecutive loss streak on {{ $labels.symbol }}"
+          description: "{{ $labels.symbol }} has {{ $value }} consecutive losses."
+
+      - alert: LowWinRate
+        expr: edge_win_rate < 40
+        for: 30m
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "Win rate below 40% for {{ $labels.symbol }}"
+          description: "Current win rate: {{ $value }}%"
+
+      # ── Evaluation performance ──────────────────────────────────────────
+
+      - alert: SlowEvaluation
+        expr: histogram_quantile(0.99, rate(edge_eval_duration_seconds_bucket[5m])) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "Sentinel Edge evaluation p99 latency exceeds 1 second"
+          description: "p99 evaluation duration = {{ $value }}s"
+
+      - alert: PriceFetchFailures
+        expr: rate(price_fetch_failures_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "Price fetch failure rate elevated"
+          description: "{{ $value }} failures/s over the last 5 minutes."
+
+      # ── Correlation clusters ────────────────────────────────────────────
+
+      - alert: CorrelationBearishCluster
+        expr: increase(analyst_correlation_clusters_total{direction="bearish"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "BEARISH correlation cluster detected"
+          description: "Multiple symbols breaking down simultaneously."
+
+      - alert: HighDrawdown
+        expr: ticker_drawdown_percent > 8
+        for: 0m
+        labels:
+          severity: critical
+          service: sentinel-edge
+        annotations:
+          summary: "Drawdown exceeds 8% on {{ $labels.symbol }}"
+          description: "Current drawdown: {{ $value }}%"
