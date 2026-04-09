@@ -110,12 +110,21 @@ services:
     container_name: sentinel-alertmanager
     ports:
       - "9093:9093"
+    # Env vars for webhook auth + notification channels
+    environment:
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_TRADING_CHAT=${TELEGRAM_TRADING_CHAT:-0}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-http://placeholder/no-slack}
     volumes:
       - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
+      # Expands $ENV_VAR placeholders in alertmanager.yml at startup
+      - '--config.expand-env'
+      - '--web.listen-address=:9093'
     networks:
       - sentinel-net
     restart: unless-stopped

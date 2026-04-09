@@ -189,3 +189,119 @@ async def webhook_health() -> Dict[str, Any]:
         "analyst_ready": _core.analyst_instance is not None,
         "auth_enabled": bool(_WEBHOOK_SECRET),
     }
+
+
+# ── Dedicated pulse-override endpoint ────────────────────────────────────────
+
+@router.post("/webhook/pulse-override", status_code=status.HTTP_200_OK)
+async def handle_pulse_override(request: Request) -> Dict[str, Any]:
+    """
+    Dedicated receiver for the 'pulse-override' Alertmanager route.
+
+    Handles critical-severity alerts that require an immediate Pulse action.
+    Maps `action` label → specific override command.
+
+    Alertmanager sends this to all critical alerts routed via 'pulse-override'.
+    """
+    _verify_basic_auth(request)
+
+    try:
+        payload: Dict[str, Any] = await request.json()
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON")
+
+    edge = _core.analyst_instance
+    if not edge:
+        logger.warning("analyst_instance not ready — pulse-override skipped")
+        return {"status": "not_ready"}
+
+    alerts: list = payload.get("alerts", [])
+    results = []
+
+    for alert in alerts:
+        labels = alert.get("labels", {})
+        annotations = alert.get("annotations", {})
+        alert_status = alert.get("status", "firing")
+        alertname = labels.get("alertname", "")
+        action = labels.get("action", "")
+        direction = labels.get("direction", "")
+        severity = labels.get("severity", "")
+
+        logger.warning(
+            "⚡ PULSE-OVERRIDE: alertname=%s action=%s severity=%s direction=%s status=%s",
+            alertname, action, severity, direction, alert_status,
+        )
+
+        if alert_status == "resolved":
+            results.append({"alertname": alertname, "action": "resolved_ack"})
+            continue
+
+        override_action = None
+
+        # Map alert labels → Pulse override command
+        if action == "global_risk_reduction" or alertname == "CriticalBearishCorrelation":
+            override_action = "tighten_trailing_global"
+
+        elif action == "increase_aggression" or alertname == "BullishMomentumRegime":
+            override_action = "relax_trailing_stops"
+
+        elif action == "pause_new_buys":
+            override_action = "pause_new_entries"
+
+        elif alertname == "HighDrawdown":
+            override_action = "emergency_exit_all"
+
+        elif alertname == "EdgeEngineDown":
+            logger.critical("💀 EdgeEngineDown via pulse-override — manual intervention needed")
+            results.append({"alertname": alertname, "action": "engine_down_critical"})
+            continue
+
+        if override_action:
+            await edge.send_override(override_action, {
+                "source": "alertmanager_pulse_override",
+                "alertname": alertname,
+                "severity": severity,
+                "direction": direction,
+                "summary": annotations.get("summary", ""),
+                "cluster_id": labels.get("cluster_id", ""),
+            })
+            edge.prom_exporter.record_override(override_action)
+            logger.warning("✅ Override dispatched: %s", override_action)
+            results.append({"alertname": alertname, "action": override_action})
+        else:
+            logger.info("No override mapped for alertname=%s action=%s", alertname, action)
+            results.append({"alertname": alertname, "action": "no_override_mapped"})
+
+    return {"status": "acknowledged", "processed": len(results), "results": results}
+
+
+# ── General alert endpoint ────────────────────────────────────────────────────
+
+@router.post("/webhook/general", status_code=status.HTTP_200_OK)
+async def handle_general(request: Request) -> Dict[str, Any]:
+    """
+    General-purpose alert receiver — logs all alerts and returns ACK.
+
+    Used by 'default' and 'trading-team' receivers as a reliable fallback.
+    Extend this to forward to Telegram / PagerDuty / Slack as needed.
+    """
+    _verify_basic_auth(request)
+
+    try:
+        payload: Dict[str, Any] = await request.json()
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON")
+
+    alerts: list = payload.get("alerts", [])
+    for alert in alerts:
+        labels = alert.get("labels", {})
+        annotations = alert.get("annotations", {})
+        logger.info(
+            "📋 GENERAL alert [%s]: alertname=%s severity=%s — %s",
+            alert.get("status", "?"),
+            labels.get("alertname", "unknown"),
+            labels.get("severity", "unknown"),
+            annotations.get("summary", ""),
+        )
+
+    return {"status": "acknowledged", "processed": len(alerts)}

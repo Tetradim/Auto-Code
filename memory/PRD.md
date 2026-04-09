@@ -107,7 +107,13 @@ Broker Health, P&L Tracking, and Market Coverage.
 - **`prometheus/rules.yml`**: added `StrongCorrelationCluster`, `BearishClusterOverride`, `HighPulseOverrideRate` (11 total alert rules) ✅
 - **`README.md`**: full rewrite — architecture diagram, communication channel table, analyst/ package reference, API reference, pluggable strategy example, MongoDB command bus docs, env vars, Docker quick-start ✅
 
-### Session 7 (2026-04-09) — Alertmanager Webhook Integration
+### Session 8 (2026-04-09) — Advanced Alertmanager + Routing Tree
+- **`prometheus/alertmanager.yml`**: full advanced routing tree — 4 receivers (`pulse-override`, `trading-team`, `regime-alerts`, `default`); Slack + Telegram + Echo webhook; `--config.expand-env` for secrets; smart inhibit rules (critical silences warning for same direction, cluster silences individual symbol breakouts); time-based muting (outside 9:30–16:00 ET weekdays) ✅
+- **`prometheus/rules.yml`**: 3 new alert rules — `CriticalBearishCorrelation` (bearish clusters ≥3 for 90s, action=global_risk_reduction), `BullishMomentumRegime` (bullish ORB rate >8/5m for 3m, action=increase_aggression), `SingleSymbolBreakout` (isolated non-index breakout, severity=info) ✅
+- **`analyst/webhook/alert_handler.py`**: 2 new endpoints — `/api/webhook/pulse-override` (dedicated critical override handler with full action→command mapping: tighten/relax/pause/exit) + `/api/webhook/general` (general logging receiver) ✅
+- **`docker-compose.yml`**: alertmanager service updated with `--config.expand-env` flag + env vars for `WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_TRADING_CHAT`, `SLACK_WEBHOOK_URL` ✅
+
+## Key API Endpoints
 - **`prometheus/alertmanager.yml`**: updated with `group_by: [alertname, direction]`, per-route configs (BearishClusterOverride = 0s wait, critical = 30m repeat), inhibit rules suppressing warning when critical fires for same direction ✅
 - **`analyst/webhook/alert_handler.py`**: FastAPI router at `/api/webhook/alert`; dispatches `BearishClusterOverride` / `HighDrawdown` / `StrongCorrelationCluster` → `send_override()`; `EdgeEngineDown` logged; resolved alerts ACK'd without action; optional Basic Auth via `WEBHOOK_SECRET` env var; records overrides to `prom_exporter` ✅
 - **`analyst/core.py`**: `analyst_instance` module-level singleton set by server.py lifespan ✅

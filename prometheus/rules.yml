@@ -126,3 +126,50 @@ groups:
         annotations:
           summary: "High rate of Pulse overrides from analyst"
           description: "Override rate: {{ $value }}/s over last 5 minutes."
+
+  # ── Sentinel trading alerts (market regime + correlation) ───────────────
+
+  - name: sentinel_trading_alerts
+    rules:
+
+      # Critical bearish cluster — fires Pulse global risk reduction
+      - alert: CriticalBearishCorrelation
+        expr: analyst_correlation_clusters_total{direction="bearish", strength="high"} >= 3
+        for: 90s
+        labels:
+          severity: critical
+          action: "global_risk_reduction"
+          cluster_id: "{{ $labels.direction }}"
+          service: sentinel-edge
+        annotations:
+          summary: "CRITICAL: {{ $value }}-symbol bearish correlation cluster"
+          description: >
+            Strong bearish cluster detected across {{ $value }} symbols.
+            Auto-tightening risk exposure across Pulse.
+
+      # Bullish momentum regime — signals aggressive entry opportunity
+      - alert: BullishMomentumRegime
+        expr: rate(analyst_orb_breakouts_total{direction="bullish"}[5m]) > 8
+        for: 3m
+        labels:
+          severity: warning
+          action: "increase_aggression"
+          service: sentinel-edge
+        annotations:
+          summary: "Strong bullish momentum regime detected"
+          description: >
+            Bullish ORB breakout rate = {{ $value }}/s (threshold: 8/5m).
+            Multiple symbols breaking out — consider relaxing trailing stops.
+
+      # Single symbol breakout — isolated event, not a cluster
+      - alert: SingleSymbolBreakout
+        expr: analyst_orb_breakouts_total{symbol!~"SPY|QQQ"} > 2
+        for: 2m
+        labels:
+          severity: info
+          service: sentinel-edge
+        annotations:
+          summary: "Isolated breakout on {{ $labels.symbol }}"
+          description: >
+            {{ $labels.symbol }} has {{ $value }} ORB breakouts (not a broad cluster).
+            Direction: {{ $labels.direction }}, Timeframe: {{ $labels.timeframe }}.
