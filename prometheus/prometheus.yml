@@ -28,12 +28,23 @@ scrape_configs:
     scrape_timeout: 5s
 
   # Analyst-specific metrics (separate server when ANALYST_START_METRICS_SERVER=true)
-  - job_name: 'sentinel-edge-analyst'
+  - job_name: 'sentinel-analyst'
     static_configs:
       - targets: ['sentinel-edge:8002']
         labels:
           service: 'edge'
           component: 'analyst'
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # Sentinel Pulse (companion bot)
+  - job_name: 'pulse'
+    static_configs:
+      - targets: ['pulse:8001']
+        labels:
+          service: 'pulse'
+          component: 'backend'
     metrics_path: '/metrics'
     scrape_interval: 5s
     scrape_timeout: 5s

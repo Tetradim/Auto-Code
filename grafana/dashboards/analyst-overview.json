@@ -1,105 +1,132 @@
 {
-  "dashboard": {
-    "title": "Sentinel Edge — Analyst Overview",
-    "uid": "se-analyst-overview",
-    "tags": ["sentinel-edge", "analyst", "orb"],
-    "timezone": "browser",
-    "schemaVersion": 38,
-    "version": 2,
-    "refresh": "5s",
-    "time": {"from": "now-1h", "to": "now"},
-    "panels": [
-      {
-        "id": 1, "type": "stat", "title": "Engine Status",
-        "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
-        "targets": [{"expr": "edge_engine_running", "refId": "A"}],
-        "options": {"graphMode": "none", "colorMode": "background"},
-        "fieldConfig": {"defaults": {"mappings": [
-          {"type": "value", "options": {"0": {"text": "STOPPED", "color": "red"}, "1": {"text": "RUNNING", "color": "green"}}}
-        ]}}
-      },
-      {
-        "id": 2, "type": "stat", "title": "Active Tickers",
-        "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
-        "targets": [{"expr": "ticker_active_count", "refId": "A"}],
-        "options": {"graphMode": "area", "colorMode": "value"},
-        "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"value": 0, "color": "blue"}]}}}
-      },
-      {
-        "id": 3, "type": "stat", "title": "Total Decisions",
-        "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
-        "targets": [{"expr": "sum(edge_decision_total)", "refId": "A"}],
-        "options": {"graphMode": "area", "colorMode": "value"}
-      },
-      {
-        "id": 4, "type": "gauge", "title": "Avg Win Rate %",
-        "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
-        "targets": [{"expr": "avg(edge_win_rate)", "refId": "A"}],
-        "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 50, "color": "yellow"}, {"value": 70, "color": "green"}]}}}
-      },
-      {
-        "id": 5, "type": "stat", "title": "Correlation Clusters",
-        "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
-        "targets": [{"expr": "sum(analyst_correlation_clusters_total)", "refId": "A", "legendFormat": "Total clusters"}],
-        "options": {"graphMode": "area", "colorMode": "value"}
-      },
-      {
-        "id": 6, "type": "stat", "title": "Eval Latency p99",
-        "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
-        "targets": [{"expr": "histogram_quantile(0.99, rate(edge_eval_duration_seconds_bucket[5m]))", "refId": "A"}],
-        "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 0.5, "color": "yellow"}, {"value": 1.0, "color": "red"}]}}}
-      },
-      {
-        "id": 10, "type": "timeseries", "title": "Signal Strength by Ticker",
-        "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
-        "targets": [{"expr": "edge_signal_strength", "refId": "A", "legendFormat": "{{symbol}}"}],
-        "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "gradientMode": "hue", "lineWidth": 2}}},
-        "options": {"legend": {"displayMode": "table", "placement": "right"}}
-      },
-      {
-        "id": 11, "type": "timeseries", "title": "ORB Breakouts / min",
-        "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
-        "targets": [{"expr": "sum(rate(edge_orb_breakouts_total[1m])) by (symbol, direction)", "refId": "A", "legendFormat": "{{symbol}} {{direction}}"}],
-        "options": {"legend": {"displayMode": "table", "placement": "right"}}
-      },
-      {
-        "id": 20, "type": "timeseries", "title": "ATR by Ticker",
-        "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
-        "targets": [{"expr": "edge_atr_value", "refId": "A", "legendFormat": "{{symbol}}"}]
-      },
-      {
-        "id": 21, "type": "timeseries", "title": "Volume Ratio",
-        "gridPos": {"x": 12, "y": 12, "w": 12, "h": 6},
-        "targets": [{"expr": "edge_volume_ratio", "refId": "A", "legendFormat": "{{symbol}}"}],
-        "fieldConfig": {"defaults": {"custom": {"fillOpacity": 10}, "thresholds": {"steps": [{"value": 1.5, "color": "orange"}]}}}
-      },
-      {
-        "id": 30, "type": "timeseries", "title": "Decisions by Type",
-        "gridPos": {"x": 0, "y": 18, "w": 16, "h": 7},
-        "targets": [{"expr": "sum(rate(edge_decision_total[5m])) by (decision)", "refId": "A", "legendFormat": "{{decision}}"}],
-        "options": {"legend": {"displayMode": "table", "placement": "right"}}
-      },
-      {
-        "id": 31, "type": "stat", "title": "Max Consecutive Losses",
-        "gridPos": {"x": 16, "y": 18, "w": 8, "h": 7},
-        "targets": [{"expr": "max(edge_consecutive_losses)", "refId": "A"}],
-        "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 3, "color": "yellow"}, {"value": 5, "color": "red"}]}}}
-      },
-      {
-        "id": 40, "type": "table", "title": "Live Ticker State",
-        "gridPos": {"x": 0, "y": 25, "w": 24, "h": 7},
-        "targets": [
-          {"expr": "current_price", "refId": "A", "format": "table", "instant": true},
-          {"expr": "edge_signal_strength", "refId": "B", "format": "table", "instant": true},
-          {"expr": "edge_orb_high{timeframe=\"15m\"}", "refId": "C", "format": "table", "instant": true},
-          {"expr": "edge_orb_low{timeframe=\"15m\"}", "refId": "D", "format": "table", "instant": true},
-          {"expr": "edge_atr_value", "refId": "E", "format": "table", "instant": true}
-        ],
-        "transformations": [
-          {"id": "merge"},
-          {"id": "organize", "options": {"renameByName": {"symbol": "Ticker", "Value #A": "Price", "Value #B": "Signal", "Value #C": "ORB High 15m", "Value #D": "ORB Low 15m", "Value #E": "ATR"}}}
-        ]
-      }
-    ]
-  }
+  "title": "Sentinel Edge — Analyst Overview",
+  "uid": "se-analyst-overview",
+  "tags": ["sentinel-edge", "analyst", "orb"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 3,
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "stat",
+      "title": "Market Breadth & Correlation Clusters",
+      "description": "Total correlation clusters detected across all directions and strengths",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(analyst_correlation_clusters_total)", "refId": "A", "legendFormat": "Clusters"}],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 3, "color": "yellow"}, {"value": 7, "color": "red"}]}}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Engine Status",
+      "gridPos": {"x": 6, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "edge_engine_running", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background"},
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "STOPPED", "color": "red"}, "1": {"text": "RUNNING", "color": "green"}}}]}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "Active Tickers",
+      "gridPos": {"x": 10, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "ticker_active_count", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value"}
+    },
+    {
+      "id": 4, "type": "gauge", "title": "Win Rate %",
+      "gridPos": {"x": 14, "y": 0, "w": 5, "h": 4},
+      "targets": [{"expr": "avg(edge_win_rate)", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 50, "color": "yellow"}, {"value": 70, "color": "green"}]}}}
+    },
+    {
+      "id": 5, "type": "stat", "title": "Total Decisions",
+      "gridPos": {"x": 19, "y": 0, "w": 5, "h": 4},
+      "targets": [{"expr": "sum(edge_decision_total)", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value"}
+    },
+    {
+      "id": 10, "type": "timeseries",
+      "title": "ORB Breakouts (Last 15m)",
+      "description": "Rate of ORB breakouts per symbol and direction — 5-minute rolling window",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(analyst_orb_breakouts_total[5m])", "refId": "A", "legendFormat": "{{symbol}} {{direction}} {{timeframe}}"},
+        {"expr": "rate(edge_orb_breakouts_total[5m])", "refId": "B", "legendFormat": "edge: {{symbol}} {{direction}}"}
+      ],
+      "options": {"legend": {"displayMode": "table", "placement": "right"}},
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "lineWidth": 2}}}
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Signal Strength by Ticker",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "edge_signal_strength", "refId": "A", "legendFormat": "{{symbol}}"}],
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "gradientMode": "hue", "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+    },
+    {
+      "id": 20, "type": "heatmap",
+      "title": "ATR Values",
+      "description": "ATR heatmap per symbol — higher ATR = wider trailing stops",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "analyst_atr_value", "refId": "A", "legendFormat": "{{symbol}}"},
+        {"expr": "edge_atr_value", "refId": "B", "legendFormat": "{{symbol}}"}
+      ],
+      "options": {"calculate": false, "color": {"mode": "scheme", "scheme": "Spectral", "steps": 128}, "cellGap": 1, "yAxis": {"axisLabel": "Symbol"}},
+      "fieldConfig": {"defaults": {"custom": {"hideFrom": {"legend": false, "tooltip": false, "viz": false}}}}
+    },
+    {
+      "id": 21, "type": "timeseries", "title": "Volume Ratio",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "edge_volume_ratio", "refId": "A", "legendFormat": "{{symbol}}"}],
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 10}, "thresholds": {"steps": [{"value": 1.5, "color": "orange"}, {"value": 2.5, "color": "red"}]}}}
+    },
+    {
+      "id": 30, "type": "timeseries", "title": "Analyst Signal Latency (p99)",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "histogram_quantile(0.99, rate(analyst_signal_latency_seconds_bucket[5m]))", "refId": "A", "legendFormat": "p99"},
+        {"expr": "histogram_quantile(0.50, rate(analyst_signal_latency_seconds_bucket[5m]))", "refId": "B", "legendFormat": "p50"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 0.1, "color": "yellow"}, {"value": 0.5, "color": "red"}]}}}
+    },
+    {
+      "id": 31, "type": "timeseries", "title": "Decisions by Type",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 6},
+      "targets": [{"expr": "sum(rate(edge_decision_total[5m])) by (decision)", "refId": "A", "legendFormat": "{{decision}}"}],
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+    },
+    {
+      "id": 40, "type": "table", "title": "Live Ticker State",
+      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 7},
+      "targets": [
+        {"expr": "current_price", "refId": "A", "format": "table", "instant": true},
+        {"expr": "edge_signal_strength", "refId": "B", "format": "table", "instant": true},
+        {"expr": "edge_orb_high{timeframe=\"15m\"}", "refId": "C", "format": "table", "instant": true},
+        {"expr": "edge_orb_low{timeframe=\"15m\"}", "refId": "D", "format": "table", "instant": true},
+        {"expr": "analyst_atr_value", "refId": "E", "format": "table", "instant": true},
+        {"expr": "edge_volume_ratio", "refId": "F", "format": "table", "instant": true}
+      ],
+      "transformations": [
+        {"id": "merge"},
+        {"id": "organize", "options": {"renameByName": {"symbol": "Ticker", "Value #A": "Price", "Value #B": "Signal", "Value #C": "ORB High 15m", "Value #D": "ORB Low 15m", "Value #E": "ATR", "Value #F": "Vol Ratio"}}}
+      ]
+    },
+    {
+      "id": 50, "type": "stat", "title": "Pulse Overrides Sent",
+      "gridPos": {"x": 0, "y": 33, "w": 8, "h": 4},
+      "targets": [{"expr": "sum(analyst_pulse_overrides_total)", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value"}
+    },
+    {
+      "id": 51, "type": "stat", "title": "Consecutive Loss Streak",
+      "gridPos": {"x": 8, "y": 33, "w": 8, "h": 4},
+      "targets": [{"expr": "max(edge_consecutive_losses)", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 3, "color": "yellow"}, {"value": 5, "color": "red"}]}}}
+    },
+    {
+      "id": 52, "type": "stat", "title": "Markets Open",
+      "gridPos": {"x": 16, "y": 33, "w": 8, "h": 4},
+      "targets": [{"expr": "sum(market_open_status)", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}}}
+    }
+  ]
 }

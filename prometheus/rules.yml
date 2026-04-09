@@ -89,3 +89,40 @@ groups:
         annotations:
           summary: "Drawdown exceeds 8% on {{ $labels.symbol }}"
           description: "Current drawdown: {{ $value }}%"
+
+  # ── Analyst correlation rules ───────────────────────────────────────────
+
+  - name: analyst_rules
+    rules:
+
+      - alert: StrongCorrelationCluster
+        expr: analyst_correlation_clusters_total{strength="high"} > 1
+        for: 30s
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "Strong {{ $labels.direction }} correlation cluster detected"
+          description: >
+            {{ $value }} high-strength {{ $labels.direction }} clusters detected.
+            Multiple symbols breaking out in the same direction — potential market-wide move.
+
+      - alert: BearishClusterOverride
+        expr: increase(analyst_correlation_clusters_total{direction="bearish",strength="high"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: sentinel-edge
+        annotations:
+          summary: "BEARISH high-strength cluster — Pulse override triggered"
+          description: "Tighten-trailing-global override sent to Pulse."
+
+      - alert: HighPulseOverrideRate
+        expr: rate(analyst_pulse_overrides_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "High rate of Pulse overrides from analyst"
+          description: "Override rate: {{ $value }}/s over last 5 minutes."

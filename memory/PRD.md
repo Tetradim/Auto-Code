@@ -100,6 +100,13 @@ Broker Health, P&L Tracking, and Market Coverage.
 - **Root `/app/Dockerfile`** for containerised deployment ✅
 - All confirmed in logs: OTel gRPC exporter, SentinelEdge wired, ORB levels restored from MongoDB
 
+### Session 6 (2026-04-09) — Final Dashboard/Config/Docs Polish
+- **`analyst-overview.json`**: 16 panels — correlation clusters (stat), ORB breakout rate (timeseries), ATR heatmap, signal strength, signal latency, decisions, live ticker table, Pulse overrides, markets open ✅
+- **`correlation-breadth.json`**: 8 panels — Live Correlation Clusters (table with direction mapping), Bullish vs Bearish Clusters (donut piechart), cluster detection rate, strength distribution pie, BUY vs STOP rate timeseries ✅
+- **`prometheus.yml`**: added `sentinel-analyst:8002` and `pulse:8001` scrape jobs ✅
+- **`prometheus/rules.yml`**: added `StrongCorrelationCluster`, `BearishClusterOverride`, `HighPulseOverrideRate` (11 total alert rules) ✅
+- **`README.md`**: full rewrite — architecture diagram, communication channel table, analyst/ package reference, API reference, pluggable strategy example, MongoDB command bus docs, env vars, Docker quick-start ✅
+
 ## Key API Endpoints
 | Method | Path | Description |
 |--------|------|-------------|
