@@ -1,4 +1,4 @@
-"""Backtesting & Dry-Run Engine - Phase 5"""
+"""Backtesting & Dry-Run Engine - Phase 6"""
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -25,10 +25,15 @@ class BacktestEngine:
         symbol: str,
         start_date: str,
         end_date: str,
-        initial_capital: float = 10000.0
+        initial_capital: float = 10000.0,
+        slippage_pct: float = 0.05,
+        commission_pct: float = 0.1
     ):
-        """Run historical backtest for a symbol."""
-        logger.info(f"Starting backtest for {symbol} from {start_date} to {end_date}")
+        """Run historical backtest with realistic costs (slippage + commission)."""
+        logger.info(
+            f"Starting backtest for {symbol} from {start_date} to {end_date} "
+            f"(slippage: {slippage_pct}%, commission: {commission_pct}%)"
+        )
 
         # Fetch historical data
         try:
@@ -43,7 +48,6 @@ class BacktestEngine:
         try:
             df = df.loc[start_date:end_date].copy()
         except Exception:
-            # If date filtering fails, use all data
             pass
 
         if df.empty:
@@ -64,7 +68,6 @@ class BacktestEngine:
         equity = initial_capital
         equity_curve = []
         max_equity = initial_capital
-        drawdown = 0.0
         max_drawdown = 0.0
 
         for idx, row in df.iterrows():
@@ -72,10 +75,10 @@ class BacktestEngine:
             price = float(row['Close'])
             volume = float(row.get('Volume', 0))
 
-            # Simulate signal calculation (simplified)
+            # Simulate signal calculation
             signal_score = self._calculate_signal_score(df, idx, price)
             
-            # Simulate decision (simplified for backtest)
+            # Simulate decision
             decision = self._simulate_decision(
                 symbol=symbol,
                 price=price,
@@ -88,22 +91,36 @@ class BacktestEngine:
                 position = {
                     "entry_price": price,
                     "entry_time": timestamp,
-                    "size": initial_capital * 0.1 / price  # 10% position
+                    "size": initial_capital * 0.1 / price
                 }
                 trade_marker = {"time": timestamp, "price": price, "type": "buy"}
                 
             elif decision == "SELL" and position:
-                pnl_pct = (price - position["entry_price"]) / position["entry_price"]
-                equity += equity * pnl_pct * 0.1  # 10% position sizing
+                # Calculate raw PnL first
+                raw_pnl_pct = (price - position["entry_price"]) / position["entry_price"]
                 
+                # Apply slippage: worse execution price
+                if raw_pnl_pct > 0:
+                    exit_price = price * (1 - slippage_pct / 100)
+                else:
+                    exit_price = price * (1 + slippage_pct / 100)
+                
+                # Recalculate PnL with slippage
+                pnl_pct = (exit_price - position["entry_price"]) / position["entry_price"]
+                
+                # Calculate PnL with position sizing, then subtract commission
+                trade_pnl = equity * 0.1 * pnl_pct
+                commission = equity * 0.1 * commission_pct / 100
+                equity += trade_pnl - commission
+
                 results["trades"].append({
                     "entry_time": position["entry_time"],
                     "exit_time": timestamp,
                     "entry_price": position["entry_price"],
-                    "exit_price": price,
+                    "exit_price": round(exit_price, 2),
                     "pnl_pct": round(pnl_pct * 100, 2)
                 })
-                
+
                 trade_marker = {"time": timestamp, "price": price, "type": "sell"}
                 position = None
 
@@ -146,7 +163,6 @@ class BacktestEngine:
         price: float
     ) -> float:
         """Calculate simplified signal score for backtest."""
-        # Simple momentum signal
         if len(df) < 20:
             return 0.0
         
@@ -166,11 +182,9 @@ class BacktestEngine:
         has_position: bool
     ) -> str:
         """Simulate decision logic for backtest."""
-        # Simple rules for backtest
         if has_position:
-            return "HOLD"  # Simplified
+            return "HOLD"
         
-        # Entry signals
         if signal_score > 1.0:
             return "BUY"
         elif signal_score < -1.0:

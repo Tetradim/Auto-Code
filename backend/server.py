@@ -106,6 +106,8 @@ class BacktestRequest(BaseModel):
     start_date: str  # YYYY-MM-DD
     end_date: str  # YYYY-MM-DD
     initial_capital: float = 10000.0
+    slippage_pct: float = 0.05
+    commission_pct: float = 0.1
     dry_run: bool = True
 
 
@@ -406,7 +408,9 @@ async def run_backtest(
         symbol=request.symbol,
         start_date=request.start_date,
         end_date=request.end_date,
-        initial_capital=request.initial_capital
+        initial_capital=request.initial_capital,
+        slippage_pct=request.slippage_pct,
+        commission_pct=request.commission_pct
     )
     return result
 
