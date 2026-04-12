@@ -27,7 +27,9 @@ class BacktestEngine:
         end_date: str,
         initial_capital: float = 10000.0,
         slippage_pct: float = 0.05,
-        commission_pct: float = 0.1
+        commission_pct: float = 0.1,
+        num_simulations: int = 1000,
+        volatility_multiplier: float = 1.0
     ):
         """Run historical backtest with realistic costs (slippage + commission)."""
         logger.info(
@@ -148,6 +150,19 @@ class BacktestEngine:
 
         results["equity_curve"] = equity_curve
         results["final_capital"] = round(equity, 2)
+
+        # Auto-run Monte Carlo simulation on the results
+        try:
+            from .monte_carlo import MonteCarloEngine
+            mc_engine = MonteCarloEngine()
+            results["monte_carlo"] = await mc_engine.run_simulation(
+                results, 
+                num_simulations=num_simulations,
+                volatility_multiplier=volatility_multiplier
+            )
+        except Exception as e:
+            logger.warning(f"Monte Carlo failed: {e}")
+            results["monte_carlo"] = None
 
         logger.info(
             f"✅ Backtest complete: {len(results['trades'])} trades | "

@@ -133,6 +133,8 @@ class BacktestRequest(BaseModel):
     initial_capital: float = 10000.0
     slippage_pct: float = 0.05
     commission_pct: float = 0.1
+    num_simulations: int = 1000
+    volatility_multiplier: float = 1.0
     dry_run: bool = True
 
 
@@ -467,7 +469,9 @@ async def run_backtest(
         end_date=request.end_date,
         initial_capital=request.initial_capital,
         slippage_pct=request.slippage_pct,
-        commission_pct=request.commission_pct
+        commission_pct=request.commission_pct,
+        num_simulations=request.num_simulations,
+        volatility_multiplier=request.volatility_multiplier
     )
     return result
 

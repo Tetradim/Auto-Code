@@ -162,6 +162,42 @@ const BacktestResultsChart: React.FC<{ results: BacktestResult }> = ({ results }
           )}
         </div>
       </div>
+
+      {/* Monte Carlo Risk Analysis */}
+      {results.monte_carlo && (
+        <div className="mt-10 bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
+          <h3 className="text-lg font-semibold mb-6">
+            Monte Carlo Risk Analysis ({results.monte_carlo.simulations} simulations)
+          </h3>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">Median Outcome</div>
+              <div className="text-3xl font-mono text-white mt-2">
+                ${results.monte_carlo.median_final_equity.toLocaleString()}
+              </div>
+            </div>
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">5% Worst Case</div>
+              <div className="text-3xl font-mono text-red-400 mt-2">
+                ${results.monte_carlo.worst_case_equity.toLocaleString()}
+              </div>
+            </div>
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">Profit Probability</div>
+              <div className="text-3xl font-mono text-green-400 mt-2">
+                {results.monte_carlo.probability_of_profit}%
+              </div>
+            </div>
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">Avg Max Drawdown</div>
+              <div className="text-3xl font-mono text-orange-400 mt-2">
+                -{results.monte_carlo.mean_max_drawdown}%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

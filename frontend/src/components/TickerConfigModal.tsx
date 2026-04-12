@@ -22,6 +22,13 @@ interface BacktestResult {
   win_rate: number;
   max_drawdown_pct: number;
   symbol: string;
+  monte_carlo?: {
+    simulations: number;
+    median_final_equity: number;
+    worst_case_equity: number;
+    probability_of_profit: number;
+    mean_max_drawdown: number;
+  };
 }
 
 export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
