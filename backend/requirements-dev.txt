@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sentinel Edge — Development & Test Dependencies
+# ─────────────────────────────────────────────────────────────────────────────
+# Install with:  pip install -r requirements.txt -r requirements-dev.txt
+# These packages are NOT installed in the production Docker image.
+# ─────────────────────────────────────────────────────────────────────────────
+
+-r requirements.txt        # inherit runtime deps
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==9.0.2
+pytest-asyncio==0.23.8     # async test support
+requests==2.33.1           # sync HTTP client used in integration test files
+
+# ── Linting / formatting ──────────────────────────────────────────────────────
+black==26.3.1
+isort==8.0.1
+flake8==7.3.0
+
+# ── Type checking ─────────────────────────────────────────────────────────────
+mypy==1.20.0
