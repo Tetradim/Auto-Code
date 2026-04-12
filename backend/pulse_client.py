@@ -1,169 +1,251 @@
-"""Pulse API Client with Circuit Breaker"""
+"""Sentinel Pulse API Client — circuit-breaker HTTP client.
+
+All outbound calls to Sentinel Pulse go through this module.
+The circuit breaker opens after FAILURE_THRESHOLD consecutive failures and
+stays open for CIRCUIT_OPEN_DURATION seconds before allowing a test request.
+
+A single persistent AsyncClient is reused across all calls (connection pooling).
+Call `await pulse.aclose()` during application shutdown.
+"""
 import logging
 import time
-from typing import Optional, Dict, Any
 from enum import Enum
+from typing import Any, Dict, Optional
+
 import httpx
-from metrics import edge_api_calls_total, edge_api_latency, broker_circuit_state, broker_failure_rate
+
+from metrics import (
+    broker_circuit_state,
+    broker_failure_rate,
+    edge_api_calls_total,
+    edge_api_latency,
+)
 
 logger = logging.getLogger(__name__)
 
+
 class CircuitState(Enum):
-    CLOSED = 0      # Normal operation
-    HALF_OPEN = 1   # Testing if service recovered
-    OPEN = 2        # Service unavailable
+    CLOSED    = 0   # normal operation
+    HALF_OPEN = 1   # testing recovery
+    OPEN      = 2   # Pulse unreachable; requests blocked
+
 
 class PulseClient:
-    """Client for Pulse API with circuit breaker pattern"""
-    
-    FAILURE_THRESHOLD = 5
-    SUCCESS_THRESHOLD = 2
-    TIMEOUT_SECONDS = 5.0
-    CIRCUIT_OPEN_DURATION = 60  # seconds
-    
-    def __init__(self, base_url: str = "http://localhost:8002", api_key: Optional[str] = None):
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
+    """HTTP client for Sentinel Pulse with a circuit-breaker guard."""
+
+    FAILURE_THRESHOLD    = 5
+    SUCCESS_THRESHOLD    = 2
+    TIMEOUT_SECONDS      = 5.0
+    CIRCUIT_OPEN_DURATION = 60  # seconds before attempting HALF_OPEN
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:8002",
+        api_key: Optional[str] = None,
+    ):
+        self.base_url  = base_url.rstrip("/")
+        self.api_key   = api_key
         self.broker_id = "pulse"
-        
+
         # Circuit breaker state
-        self.state = CircuitState.CLOSED
-        self.failure_count = 0
-        self.success_count = 0
-        self.last_failure_time = 0
-        
-        # Initialize metrics
+        self.state            = CircuitState.CLOSED
+        self.failure_count    = 0
+        self.success_count    = 0
+        self.last_failure_time = 0.0
+
+        # Persistent connection pool — avoids TCP handshake overhead per call
+        self._client = httpx.AsyncClient(
+            timeout=self.TIMEOUT_SECONDS,
+            headers=self._build_headers(),
+        )
+
         broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
         broker_failure_rate.labels(broker_id=self.broker_id).set(0.0)
-        
-        logger.info(f"Pulse Client initialized: {self.base_url}")
-    
-    def _get_headers(self) -> Dict[str, str]:
-        """Get request headers"""
-        headers = {"Content-Type": "application/json"}
+        logger.info("PulseClient → %s", self.base_url)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Internal helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _build_headers(self) -> Dict[str, str]:
+        h = {"Content-Type": "application/json"}
         if self.api_key:
-            headers["X-API-KEY"] = self.api_key
-        return headers
-    
+            h["X-API-KEY"] = self.api_key
+        return h
+
     def _should_allow_request(self) -> bool:
-        """Check if request should be allowed based on circuit state"""
         if self.state == CircuitState.CLOSED:
             return True
-        
         if self.state == CircuitState.OPEN:
-            # Check if we should try half-open
             if time.time() - self.last_failure_time > self.CIRCUIT_OPEN_DURATION:
-                logger.info(f"Circuit breaker transitioning to HALF_OPEN")
+                logger.info("Circuit breaker → HALF_OPEN (testing recovery)")
                 self.state = CircuitState.HALF_OPEN
                 broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
                 return True
             return False
-        
-        # HALF_OPEN state - allow limited requests
-        return True
-    
+        return True  # HALF_OPEN — allow the test request
+
     def _record_success(self):
-        """Record successful request"""
         self.failure_count = 0
-        
         if self.state == CircuitState.HALF_OPEN:
             self.success_count += 1
             if self.success_count >= self.SUCCESS_THRESHOLD:
-                logger.info(f"Circuit breaker CLOSED after {self.success_count} successes")
-                self.state = CircuitState.CLOSED
+                logger.info("Circuit breaker → CLOSED after %d successes", self.success_count)
+                self.state         = CircuitState.CLOSED
                 self.success_count = 0
                 broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
-    
+
     def _record_failure(self):
-        """Record failed request"""
-        self.failure_count += 1
+        self.failure_count    += 1
         self.last_failure_time = time.time()
-        self.success_count = 0
-        
+        self.success_count     = 0
         if self.failure_count >= self.FAILURE_THRESHOLD:
-            logger.error(f"Circuit breaker OPEN after {self.failure_count} failures")
+            logger.error("Circuit breaker → OPEN after %d failures", self.failure_count)
             self.state = CircuitState.OPEN
             broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
-        
-        # Update failure rate
-        total_requests = self.failure_count
-        failure_rate = (self.failure_count / max(total_requests, 1)) * 100
-        broker_failure_rate.labels(broker_id=self.broker_id).set(failure_rate)
-    
-    async def get_tickers(self) -> list:
-        """Get active tickers from Pulse (MOCKED)"""
-        # For now, return mock data
-        return [
-            {"symbol": "SPY", "enabled": True},
-            {"symbol": "QQQ", "enabled": True},
-            {"symbol": "NVDA", "enabled": True},
-            {"symbol": "AAPL", "enabled": True}
-        ]
-    
-    async def send_decision(self, symbol: str, decision: str, **kwargs) -> bool:
-        """Send trading decision to Pulse"""
-        
+        total = max(self.failure_count, 1)
+        broker_failure_rate.labels(broker_id=self.broker_id).set(
+            (self.failure_count / total) * 100
+        )
+
+    async def _post(self, endpoint: str, payload: Dict[str, Any]) -> bool:
+        """POST with circuit-breaker guard. Returns True on 2xx."""
         if not self._should_allow_request():
-            logger.warning(f"Circuit breaker {self.state.name} - request blocked")
+            logger.warning("Circuit %s — POST %s blocked", self.state.name, endpoint)
             return False
-        
-        endpoint = f"/api/tickers/{symbol}/decision"
-        url = f"{self.base_url}{endpoint}"
-        
-        payload = {
-            "symbol": symbol,
-            "decision": decision,
-            **kwargs
-        }
-        
-        start_time = time.time()
-        
+
+        url   = f"{self.base_url}{endpoint}"
+        start = time.time()
         try:
-            async with httpx.AsyncClient(timeout=self.TIMEOUT_SECONDS) as client:
-                response = await client.post(
-                    url,
-                    json=payload,
-                    headers=self._get_headers()
-                )
-                
-                duration = time.time() - start_time
-                edge_api_latency.labels(endpoint=endpoint).observe(duration)
-                
-                if response.status_code in [200, 201]:
-                    edge_api_calls_total.labels(endpoint=endpoint, status="success").inc()
-                    self._record_success()
-                    logger.info(f"✅ Sent decision to Pulse: {symbol} -> {decision}")
-                    return True
-                else:
-                    edge_api_calls_total.labels(endpoint=endpoint, status="failure").inc()
-                    self._record_failure()
-                    logger.error(f"❌ Pulse API error: {response.status_code}")
-                    return False
-        
+            response = await self._client.post(url, json=payload)
+            edge_api_latency.labels(endpoint=endpoint).observe(time.time() - start)
+            if response.status_code in (200, 201, 204):
+                edge_api_calls_total.labels(endpoint=endpoint, status="success").inc()
+                self._record_success()
+                return True
+            edge_api_calls_total.labels(endpoint=endpoint, status="failure").inc()
+            self._record_failure()
+            logger.error("Pulse %s → HTTP %d", endpoint, response.status_code)
+            return False
         except httpx.TimeoutException:
             edge_api_calls_total.labels(endpoint=endpoint, status="timeout").inc()
             self._record_failure()
-            logger.error(f"⌛ Pulse API timeout for {symbol}")
+            logger.error("Pulse %s timed out", endpoint)
             return False
-        
-        except Exception as e:
+        except Exception as exc:
             edge_api_calls_total.labels(endpoint=endpoint, status="error").inc()
             self._record_failure()
-            logger.error(f"⚠️ Pulse API error: {e}")
+            logger.error("Pulse %s error: %s", endpoint, exc)
             return False
-    
-    async def enable_trailing_stop(self, symbol: str, trailing_percent: float) -> bool:
-        """Enable trailing stop for a symbol"""
-        return await self.send_decision(
-            symbol,
-            "enable_trailing_stop",
-            trailing_percent=trailing_percent
+
+    async def _get(self, endpoint: str) -> Optional[Dict[str, Any]]:
+        """GET with circuit-breaker guard. Returns parsed JSON or None."""
+        if not self._should_allow_request():
+            logger.debug("Circuit %s — GET %s blocked", self.state.name, endpoint)
+            return None
+
+        url   = f"{self.base_url}{endpoint}"
+        start = time.time()
+        try:
+            response = await self._client.get(url)
+            edge_api_latency.labels(endpoint=endpoint).observe(time.time() - start)
+            if response.status_code == 200:
+                edge_api_calls_total.labels(endpoint=endpoint, status="success").inc()
+                self._record_success()
+                return response.json()
+            if response.status_code == 404:
+                # Not an error — symbol has no open position
+                self._record_success()
+                return None
+            edge_api_calls_total.labels(endpoint=endpoint, status="failure").inc()
+            self._record_failure()
+            logger.warning("Pulse GET %s → HTTP %d", endpoint, response.status_code)
+            return None
+        except httpx.TimeoutException:
+            edge_api_calls_total.labels(endpoint=endpoint, status="timeout").inc()
+            self._record_failure()
+            logger.error("Pulse GET %s timed out", endpoint)
+            return None
+        except Exception as exc:
+            edge_api_calls_total.labels(endpoint=endpoint, status="error").inc()
+            self._record_failure()
+            logger.error("Pulse GET %s error: %s", endpoint, exc)
+            return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Position query
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetch live position state for *symbol* from Pulse.
+
+        Expected Pulse response shape
+        ──────────────────────────────
+        {
+          "symbol":           "SPY",
+          "has_position":     true,
+          "pnl":              125.50,        // absolute P&L in dollars
+          "pnl_pct":          1.20,          // P&L as percentage of entry value
+          "trailing_enabled": false,
+          "trailing_percent": null,
+          "entry_price":      440.00,
+          "current_price":    445.28,
+          "drawdown_pct":     0.0            // optional; computed locally if absent
+        }
+
+        Returns None when:
+          - circuit is open (Pulse unreachable)
+          - 404 (symbol has no open position)
+          - any network / parsing error
+
+        Callers should fall back to their local cached state on None.
+        """
+        data = await self._get(f"/api/positions/{symbol}")
+        if data is None:
+            return None
+
+        # Normalise — Pulse API versions may use different key names
+        return {
+            "has_position":     bool(data.get("has_position", data.get("active", False))),
+            "pnl":              float(data.get("pnl", data.get("unrealized_pnl", 0.0))),
+            "pnl_pct":          float(data.get("pnl_pct", data.get("unrealized_pnl_pct", 0.0))),
+            "trailing_enabled": bool(data.get("trailing_enabled", data.get("trailing_stop_enabled", False))),
+            "trailing_percent": data.get("trailing_percent"),
+            "entry_price":      data.get("entry_price"),
+            "drawdown_pct":     float(data.get("drawdown_pct", 0.0)),
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Trade commands
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def send_decision(self, symbol: str, decision: str, **kwargs) -> bool:
+        """Forward a trading decision to Pulse."""
+        return await self._post(
+            f"/api/tickers/{symbol}/decision",
+            {"symbol": symbol, "decision": decision, **kwargs},
         )
-    
+
+    async def enable_trailing_stop(self, symbol: str, trailing_percent: float) -> bool:
+        return await self.send_decision(
+            symbol, "enable_trailing_stop", trailing_percent=trailing_percent
+        )
+
     async def stop_buying(self, symbol: str) -> bool:
-        """Stop buying a symbol"""
         return await self.send_decision(symbol, "stop_buying")
-    
+
     async def emergency_stop(self, symbol: str) -> bool:
-        """Emergency stop for a symbol"""
         return await self.send_decision(symbol, "emergency_stop")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Lifecycle
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def get_tickers(self) -> list:
+        """List tickers tracked by Pulse."""
+        data = await self._get("/api/tickers")
+        return data if isinstance(data, list) else []
+
+    async def aclose(self):
+        """Release the underlying connection pool. Call during app shutdown."""
+        await self._client.aclose()

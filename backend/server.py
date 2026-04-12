@@ -156,6 +156,7 @@ async def lifespan(app: FastAPI):
             await scheduler_task
         except asyncio.CancelledError:
             pass
+    await pulse_client.aclose()   # release httpx connection pool
     _mongo_client.close()
     logger.info("👋 Sentinel Edge stopped")
 
