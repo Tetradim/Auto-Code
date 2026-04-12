@@ -1,11 +1,30 @@
 """Sentinel Pulse API Client — circuit-breaker HTTP client.
 
-All outbound calls to Sentinel Pulse go through this module.
-The circuit breaker opens after FAILURE_THRESHOLD consecutive failures and
-stays open for CIRCUIT_OPEN_DURATION seconds before allowing a test request.
+Pulse independence
+──────────────────
+Sentinel Edge is designed to run fully independently of Sentinel Pulse.
+On startup, check_pulse() probes Pulse's /api/health endpoint once.
+If Pulse is unreachable, pulse_available is set to False and all outbound
+decision/override calls are silently suppressed (logged but not sent).
+The circuit breaker then handles transient failures during normal operation.
 
-A single persistent AsyncClient is reused across all calls (connection pooling).
-Call `await pulse.aclose()` during application shutdown.
+The evaluation loop (ORB detection, signal scoring, risk management) runs
+regardless of Pulse availability. Decisions are computed and logged; they
+are only sent when Pulse is reachable.
+
+Standalone mode
+───────────────
+  pulse_available = False → all send_* methods return False immediately
+  pulse_available = True  → normal circuit-breaker behaviour
+
+Pulse availability is re-checked automatically whenever the circuit breaker
+transitions from OPEN to HALF_OPEN, so a later Pulse start is detected
+without needing a restart.
+
+Connection pooling
+──────────────────
+A single persistent AsyncClient is reused across all calls (keep-alive,
+connection pooling). Call await pulse.aclose() during application shutdown.
 """
 import logging
 import time
@@ -23,37 +42,44 @@ from metrics import (
 
 logger = logging.getLogger(__name__)
 
+HEALTH_PROBE_TIMEOUT = 3.0   # seconds — startup health check
+
 
 class CircuitState(Enum):
     CLOSED    = 0   # normal operation
-    HALF_OPEN = 1   # testing recovery
-    OPEN      = 2   # Pulse unreachable; requests blocked
+    HALF_OPEN = 1   # testing if Pulse recovered
+    OPEN      = 2   # Pulse unreachable; requests suppressed
 
 
 class PulseClient:
-    """HTTP client for Sentinel Pulse with a circuit-breaker guard."""
+    """HTTP client for Sentinel Pulse with a circuit-breaker guard
+    and an explicit pulse_available flag for standalone operation."""
 
-    FAILURE_THRESHOLD    = 5
-    SUCCESS_THRESHOLD    = 2
-    TIMEOUT_SECONDS      = 5.0
-    CIRCUIT_OPEN_DURATION = 60  # seconds before attempting HALF_OPEN
+    FAILURE_THRESHOLD     = 5
+    SUCCESS_THRESHOLD     = 2
+    TIMEOUT_SECONDS       = 5.0
+    CIRCUIT_OPEN_DURATION = 60  # seconds before HALF_OPEN probe
 
     def __init__(
         self,
         base_url: str = "http://localhost:8002",
-        api_key: Optional[str] = None,
+        api_key:  Optional[str] = None,
     ):
         self.base_url  = base_url.rstrip("/")
         self.api_key   = api_key
         self.broker_id = "pulse"
 
+        # Availability flag — set by check_pulse() on startup
+        # and re-evaluated when circuit moves to HALF_OPEN
+        self.pulse_available: bool = False
+
         # Circuit breaker state
-        self.state            = CircuitState.CLOSED
-        self.failure_count    = 0
-        self.success_count    = 0
+        self.state             = CircuitState.CLOSED
+        self.failure_count     = 0
+        self.success_count     = 0
         self.last_failure_time = 0.0
 
-        # Persistent connection pool — avoids TCP handshake overhead per call
+        # Persistent connection pool
         self._client = httpx.AsyncClient(
             timeout=self.TIMEOUT_SECONDS,
             headers=self._build_headers(),
@@ -61,7 +87,39 @@ class PulseClient:
 
         broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
         broker_failure_rate.labels(broker_id=self.broker_id).set(0.0)
-        logger.info("PulseClient → %s", self.base_url)
+        logger.info("PulseClient initialised → %s (awaiting health probe)", self.base_url)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Startup probe
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def check_pulse(self) -> bool:
+        """Probe Pulse once. Safe to call at startup — never raises.
+
+        Sets self.pulse_available and returns the same value.
+        Called automatically by server.py lifespan before the scheduler starts.
+        """
+        url = f"{self.base_url}/api/health"
+        try:
+            async with httpx.AsyncClient(timeout=HEALTH_PROBE_TIMEOUT) as probe:
+                resp = await probe.get(url)
+            if resp.status_code == 200:
+                self.pulse_available = True
+                logger.info("✅ Pulse reachable @ %s — connected mode", self.base_url)
+            else:
+                self.pulse_available = False
+                logger.warning(
+                    "⚠️  Pulse returned HTTP %d — standalone mode", resp.status_code
+                )
+        except Exception as exc:
+            self.pulse_available = False
+            logger.warning(
+                "⚠️  Pulse not reachable (%s) — Edge running in standalone mode. "
+                "Signal analysis and ORB detection will run normally; "
+                "decisions will be computed but not sent to Pulse.",
+                exc,
+            )
+        return self.pulse_available
 
     # ─────────────────────────────────────────────────────────────────────────
     # Internal helpers
@@ -74,19 +132,28 @@ class PulseClient:
         return h
 
     def _should_allow_request(self) -> bool:
+        """Gate: not available → False; circuit open → False; else True."""
+        if not self.pulse_available:
+            return False
+
         if self.state == CircuitState.CLOSED:
             return True
+
         if self.state == CircuitState.OPEN:
             if time.time() - self.last_failure_time > self.CIRCUIT_OPEN_DURATION:
-                logger.info("Circuit breaker → HALF_OPEN (testing recovery)")
+                logger.info("Circuit breaker → HALF_OPEN (re-probing Pulse)")
                 self.state = CircuitState.HALF_OPEN
                 broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
                 return True
             return False
-        return True  # HALF_OPEN — allow the test request
 
-    def _record_success(self):
+        return True   # HALF_OPEN
+
+    def _record_success(self) -> None:
         self.failure_count = 0
+        if not self.pulse_available:
+            self.pulse_available = True
+            logger.info("Pulse responded — switching to connected mode")
         if self.state == CircuitState.HALF_OPEN:
             self.success_count += 1
             if self.success_count >= self.SUCCESS_THRESHOLD:
@@ -95,7 +162,7 @@ class PulseClient:
                 self.success_count = 0
                 broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
 
-    def _record_failure(self):
+    def _record_failure(self) -> None:
         self.failure_count    += 1
         self.last_failure_time = time.time()
         self.success_count     = 0
@@ -109,9 +176,11 @@ class PulseClient:
         )
 
     async def _post(self, endpoint: str, payload: Dict[str, Any]) -> bool:
-        """POST with circuit-breaker guard. Returns True on 2xx."""
         if not self._should_allow_request():
-            logger.warning("Circuit %s — POST %s blocked", self.state.name, endpoint)
+            if self.pulse_available:
+                logger.debug("Circuit %s — POST %s suppressed", self.state.name, endpoint)
+            else:
+                logger.debug("Standalone mode — POST %s suppressed", endpoint)
             return False
 
         url   = f"{self.base_url}{endpoint}"
@@ -139,9 +208,7 @@ class PulseClient:
             return False
 
     async def _get(self, endpoint: str) -> Optional[Dict[str, Any]]:
-        """GET with circuit-breaker guard. Returns parsed JSON or None."""
         if not self._should_allow_request():
-            logger.debug("Circuit %s — GET %s blocked", self.state.name, endpoint)
             return None
 
         url   = f"{self.base_url}{endpoint}"
@@ -154,17 +221,14 @@ class PulseClient:
                 self._record_success()
                 return response.json()
             if response.status_code == 404:
-                # Not an error — symbol has no open position
                 self._record_success()
                 return None
             edge_api_calls_total.labels(endpoint=endpoint, status="failure").inc()
             self._record_failure()
-            logger.warning("Pulse GET %s → HTTP %d", endpoint, response.status_code)
             return None
         except httpx.TimeoutException:
             edge_api_calls_total.labels(endpoint=endpoint, status="timeout").inc()
             self._record_failure()
-            logger.error("Pulse GET %s timed out", endpoint)
             return None
         except Exception as exc:
             edge_api_calls_total.labels(endpoint=endpoint, status="error").inc()
@@ -179,35 +243,16 @@ class PulseClient:
     async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """Fetch live position state for *symbol* from Pulse.
 
-        Expected Pulse response shape
-        ──────────────────────────────
-        {
-          "symbol":           "SPY",
-          "has_position":     true,
-          "pnl":              125.50,        // absolute P&L in dollars
-          "pnl_pct":          1.20,          // P&L as percentage of entry value
-          "trailing_enabled": false,
-          "trailing_percent": null,
-          "entry_price":      440.00,
-          "current_price":    445.28,
-          "drawdown_pct":     0.0            // optional; computed locally if absent
-        }
-
-        Returns None when:
-          - circuit is open (Pulse unreachable)
-          - 404 (symbol has no open position)
-          - any network / parsing error
-
-        Callers should fall back to their local cached state on None.
+        Returns None when standalone, circuit open, Pulse 404, or any error.
+        Callers should fall back to PositionTracker's self-sovereign state.
         """
         data = await self._get(f"/api/positions/{symbol}")
         if data is None:
             return None
 
-        # Normalise — Pulse API versions may use different key names
         return {
             "has_position":     bool(data.get("has_position", data.get("active", False))),
-            "pnl":              float(data.get("pnl", data.get("unrealized_pnl", 0.0))),
+            "pnl":              float(data.get("pnl",     data.get("unrealized_pnl",     0.0))),
             "pnl_pct":          float(data.get("pnl_pct", data.get("unrealized_pnl_pct", 0.0))),
             "trailing_enabled": bool(data.get("trailing_enabled", data.get("trailing_stop_enabled", False))),
             "trailing_percent": data.get("trailing_percent"),
@@ -216,15 +261,17 @@ class PulseClient:
         }
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Trade commands
+    # Trade commands — silently suppressed in standalone mode
     # ─────────────────────────────────────────────────────────────────────────
 
     async def send_decision(self, symbol: str, decision: str, **kwargs) -> bool:
-        """Forward a trading decision to Pulse."""
-        return await self._post(
+        sent = await self._post(
             f"/api/tickers/{symbol}/decision",
             {"symbol": symbol, "decision": decision, **kwargs},
         )
+        if not sent and not self.pulse_available:
+            logger.info("STANDALONE: would have sent %s → %s", decision, symbol)
+        return sent
 
     async def enable_trailing_stop(self, symbol: str, trailing_percent: float) -> bool:
         return await self.send_decision(
@@ -237,15 +284,14 @@ class PulseClient:
     async def emergency_stop(self, symbol: str) -> bool:
         return await self.send_decision(symbol, "emergency_stop")
 
+    async def get_tickers(self) -> list:
+        data = await self._get("/api/tickers")
+        return data if isinstance(data, list) else []
+
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def get_tickers(self) -> list:
-        """List tickers tracked by Pulse."""
-        data = await self._get("/api/tickers")
-        return data if isinstance(data, list) else []
-
-    async def aclose(self):
-        """Release the underlying connection pool. Call during app shutdown."""
+    async def aclose(self) -> None:
+        """Release the connection pool. Call during app shutdown."""
         await self._client.aclose()

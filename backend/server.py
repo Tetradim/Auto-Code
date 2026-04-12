@@ -121,6 +121,21 @@ async def lifespan(app: FastAPI):
     decision_engine = DecisionEngine()
     market_hours   = MarketHours()
 
+    # ── Startup Pulse probe ────────────────────────────────────────────────
+    # Non-blocking: Edge starts regardless of the result. When Pulse is down
+    # the bot runs in standalone mode — full signal analysis, ORB detection,
+    # risk management, and metric export continue; decisions are computed and
+    # logged but not forwarded. Pulse availability is re-checked automatically
+    # each time the circuit breaker transitions from OPEN → HALF_OPEN.
+    pulse_available = await pulse_client.check_pulse()
+    if pulse_available:
+        logger.info("🔗 Pulse connected — running in connected mode")
+    else:
+        logger.warning(
+            "🔌 Pulse not available — running in standalone mode. "
+            "All analysis runs normally. Decisions will be sent once Pulse comes online."
+        )
+
     # SentinelEdge orchestrator — OTel tracing, WebSocket, MongoDB change stream
     edge = SentinelEdge(db=db, pulse_url=pulse_url)
 
@@ -143,7 +158,11 @@ async def lifespan(app: FastAPI):
     scheduler_task = asyncio.create_task(scheduler.run())
     await edge.start_background_tasks()
 
-    logger.info("✅ Sentinel Edge started successfully")
+    logger.info(
+        "✅ Sentinel Edge started (Pulse: %s, position tracking: %s)",
+        "connected" if pulse_available else "standalone",
+        scheduler.position_tracker.mode_name,
+    )
     yield
 
     # ── Graceful shutdown ──────────────────────────────────────────────────
@@ -194,10 +213,12 @@ async def root():
 async def health():
     sched = _require_scheduler()
     return {
-        "status": "healthy",
-        "running": sched.running,
-        "paused": sched.paused,
-        "active_tickers": len(sched.active_tickers),
+        "status":                 "healthy",
+        "running":                sched.running,
+        "paused":                 sched.paused,
+        "active_tickers":         len(sched.active_tickers),
+        "pulse_available":        sched.pulse.pulse_available,
+        "position_tracking_mode": sched.position_tracker.mode_name,
     }
 
 
@@ -209,12 +230,13 @@ async def get_stats():
         "running":             sched.running,
         "paused":              sched.paused,
         "orb_levels_count":    len(sched.orb.get_all_levels()),
-        "pulse_circuit_state": sched.pulse.state.name,
-        "pulse_failures":      sched.pulse.failure_count,
+        "pulse_available":        sched.pulse.pulse_available,
+        "pulse_circuit_state":    sched.pulse.state.name,
+        "pulse_failures":         sched.pulse.failure_count,
+        "position_tracking_mode": sched.position_tracker.mode_name,
         # Seconds since last successful yfinance fetch per symbol.
-        # Values near OHLCV_CACHE_TTL are expected; values >> TTL indicate
-        # a symbol that is failing to fetch and running on stale data.
-        "price_cache_age_s":   sched.prices.cache_ages(),
+        # Values consistently > OHLCV_CACHE_TTL indicate stale data.
+        "price_cache_age_s":      sched.prices.cache_ages(),
     }
 
 

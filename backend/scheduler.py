@@ -4,17 +4,19 @@ EvaluationScheduler runs an asyncio loop that evaluates every active ticker
 concurrently every EVAL_INTERVAL seconds.
 
 For each ticker it:
-  1. Fetches price + volume (yfinance, 5 s cache)
-  2. Updates ORB tracker (5m / 15m / 30m ranges)
+  1. Fetches price + volume (yfinance, 30 s shared cache)
+  2. Updates ORB tracker (5m / 15m / 30m ranges, ET-anchored)
   3. Updates ATR calculator (14-period true range)
-  4. Scores the signal (5-layer ±10)
-  5. Syncs live position state from Sentinel Pulse (PnL, trailing flag)
-  6. Passes ALL risk parameters to DecisionEngine.decide()
-  7. Sends the decision to Pulse (BUY / STOP / TRAIL / EXIT)
-  8. Updates enriched ticker_state for the REST API
-  9. Records the decision in the 50-entry decision feed
- 10. Runs BaseSignal plugins
- 11. Persists ORB levels to MongoDB
+  4. Scores the signal (5-layer ±10 with volume Z-score)
+  5. Reads live position state from PositionTracker (change stream or self-sovereign)
+  6. Updates self-sovereign PnL from live price (SELF_SOVEREIGN mode only)
+  7. Passes ALL risk parameters to DecisionEngine.decide()
+  8. Sends the decision to Pulse — silently suppressed in standalone mode
+  9. Notifies PositionTracker of the decision (entry/exit bookkeeping)
+ 10. Updates enriched ticker_state for the REST API
+ 11. Records the decision in the 50-entry decision feed
+ 12. Runs BaseSignal plugins
+ 13. Persists ORB levels to MongoDB
 """
 import logging
 import asyncio
@@ -36,26 +38,12 @@ from metrics import (
     ticker_evaluation_total,
 )
 from orb import ORBTracker, ORBLevel
+from position_tracker import PositionTracker
 from price_fetcher import PriceFetcher
 from pulse_client import PulseClient
 from signals import SignalEngine, TrendDirection
 
 logger = logging.getLogger(__name__)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Position state shape (one entry per symbol in scheduler.position_state)
-# ─────────────────────────────────────────────────────────────────────────────
-
-_EMPTY_POS: Dict = {
-    "has_position":     False,
-    "pnl":              0.0,
-    "pnl_pct":          0.0,
-    "trailing_enabled": False,
-    "trailing_percent": None,
-    "peak_pnl_pct":     0.0,   # high-water mark for drawdown calc
-    "drawdown_pct":     0.0,
-}
 
 
 class EvaluationScheduler:
@@ -73,7 +61,7 @@ class EvaluationScheduler:
         signal_engine:   SignalEngine,
         decision_engine: DecisionEngine,
         market_hours:    MarketHours,
-        db=None,          # Motor async MongoDB database (optional)
+        db=None,
     ):
         self.pulse    = pulse_client
         self.prices   = price_fetcher
@@ -88,24 +76,17 @@ class EvaluationScheduler:
         self.running = False
         self.paused  = False
 
-        # Previous prices for momentum calculation
-        self.prev_prices: Dict[str, float] = {}
+        self.prev_prices:    Dict[str, float] = {}
+        self.ticker_configs: Dict[str, Dict]  = {}
+        self.ticker_state:   Dict[str, Dict]  = {}
+        self.recent_decisions: list           = []
+        self.signal_plugins:   list           = []
 
-        # Per-ticker Prometheus metric enable/disable flags
-        self.ticker_configs: Dict[str, Dict] = {}
-
-        # Enriched per-ticker state served by GET /api/tickers
-        self.ticker_state: Dict[str, Dict] = {}
-
-        # 50-entry ring buffer of non-HOLD decisions (newest first)
-        self.recent_decisions: list = []
-
-        # BaseSignal plugins (loaded by SentinelEdge.set_scheduler)
-        self.signal_plugins: list = []
-
-        # Live position state synced from Pulse each evaluation cycle.
-        # Falls back to local optimistic state when the circuit is open.
-        self.position_state: Dict[str, Dict] = {}
+        # Dual-mode position tracker (change stream primary, self-sovereign fallback)
+        self.position_tracker = PositionTracker(
+            db=db,
+            decision_engine=decision_engine,
+        )
 
         self.correlation = CorrelationEngine(
             db=self.db,
@@ -116,78 +97,6 @@ class EvaluationScheduler:
         )
 
         logger.info("Scheduler initialised with %d tickers", len(self.active_tickers))
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Position state helpers
-    # ─────────────────────────────────────────────────────────────────────────
-
-    async def _sync_position(self, symbol: str) -> Dict:
-        """Fetch current position state from Pulse for *symbol*.
-
-        On success, the returned dict updates the local cache.  On failure
-        (circuit open or Pulse unavailable), the existing cached state is
-        returned so the risk guards still fire based on the last known values
-        rather than silently reverting to zeroes.
-
-        Drawdown is computed as high_water − current when Pulse does not
-        return it directly, so EMERGENCY_EXIT via excessive drawdown works
-        without requiring Pulse to track the peak.
-        """
-        live = await self.pulse.get_position(symbol)
-
-        if live is not None:
-            # Pulse returned fresh data — update cache
-            prev = self.position_state.get(symbol, dict(_EMPTY_POS))
-
-            # Track the PnL high-water mark for drawdown calculation
-            peak = max(prev.get("peak_pnl_pct", 0.0), live["pnl_pct"])
-
-            # Use Pulse's drawdown figure when available, otherwise derive it
-            drawdown = live.get("drawdown_pct") or max(0.0, peak - live["pnl_pct"])
-
-            self.position_state[symbol] = {
-                "has_position":     live["has_position"],
-                "pnl":              live["pnl"],
-                "pnl_pct":          live["pnl_pct"],
-                "trailing_enabled": live["trailing_enabled"],
-                "trailing_percent": live.get("trailing_percent"),
-                "peak_pnl_pct":     peak,
-                "drawdown_pct":     drawdown,
-            }
-
-        # Return cached state (may be _EMPTY_POS if this is the first cycle
-        # and Pulse was unreachable — still better than hardcoded zeroes because
-        # the cache will be populated on the next successful fetch)
-        return self.position_state.get(symbol, dict(_EMPTY_POS))
-
-    def _apply_optimistic_state(self, symbol: str, decision: Decision, atr: float, price: float):
-        """Update local position state immediately after sending a decision to Pulse.
-
-        Pulse may take a second or more to execute the trade.  This ensures the
-        next evaluation cycle uses a coherent state rather than re-evaluating as
-        if nothing happened (e.g. re-sending BUY on the very next tick).
-        """
-        ps = self.position_state.setdefault(symbol, dict(_EMPTY_POS))
-
-        if decision == Decision.BUY:
-            ps["has_position"] = True
-
-        elif decision in (Decision.EMERGENCY_EXIT, Decision.STOP_BUYING):
-            # Record the trade result in DecisionEngine so consecutive-loss
-            # tracking fires correctly (negative pnl → increment loss streak)
-            if decision == Decision.EMERGENCY_EXIT:
-                self.decisions.record_trade_result(symbol, ps["pnl"])
-            # Reset position state — consider the position closed
-            self.position_state[symbol] = dict(_EMPTY_POS)
-
-        elif decision == Decision.ENABLE_TRAILING_STOP:
-            ps["trailing_enabled"] = True
-            if atr > 0 and price > 0:
-                ps["trailing_percent"] = round((atr / price) * 100 * 2, 2)
-
-        elif decision == Decision.TIGHTEN_TRAILING_STOP:
-            ps["trailing_enabled"]  = True
-            ps["trailing_percent"]  = 0.5
 
     # ─────────────────────────────────────────────────────────────────────────
     # Evaluation
@@ -256,9 +165,11 @@ class EvaluationScheduler:
                 volume_zscore=volume_zscore,
             )
 
-            # ── 6. Sync live position state from Pulse ───────────────────────
-            # Falls back to local cache when Pulse is unavailable (circuit open).
-            pos = await self._sync_position(symbol)
+            # ── 6. Position state (PositionTracker: change stream or self-sovereign)
+            # In SELF_SOVEREIGN mode, update local PnL from live price before
+            # passing it to DecisionEngine so all risk guards fire correctly.
+            self.position_tracker.update_price(symbol, price)
+            pos = self.position_tracker.get(symbol)
 
             # ── 7. Decision — all risk parameters populated ──────────────────
             decision = self.decisions.decide(
@@ -301,8 +212,10 @@ class EvaluationScheduler:
                 logger.error("🚨 %s: EMERGENCY EXIT → Pulse", symbol)
                 await self.pulse.emergency_stop(symbol)
 
-            # Update local state so the next cycle sees a coherent snapshot
-            self._apply_optimistic_state(symbol, decision, atr, price)
+            # ── 9a. Notify PositionTracker of decision taken ─────────────────
+            # Keeps optimistic state coherent while waiting for change stream
+            # confirmation; also finalises trade in SELF_SOVEREIGN mode.
+            self.position_tracker.on_decision(symbol, decision, entry_price=price)
 
             # ── 9. Correlation tracking ──────────────────────────────────────
             confidence = min(abs(signal_strength) / 10.0, 1.0)
@@ -421,7 +334,13 @@ class EvaluationScheduler:
         """Main evaluation loop — runs until stop() is called."""
         self.running = True
         edge_engine_running.set(1)
-        logger.info("🚀 Sentinel Edge scheduler started (interval: %ds)", self.EVAL_INTERVAL)
+        logger.info(
+            "🚀 Sentinel Edge scheduler started (interval: %ds, position tracking: %s)",
+            self.EVAL_INTERVAL, self.position_tracker.mode_name,
+        )
+
+        # Start position tracker background task (change stream probe + auto-upgrade)
+        self.position_tracker.start()
 
         await self._load_orb_from_db()
 
@@ -511,6 +430,7 @@ class EvaluationScheduler:
 
     def stop(self):
         self.running = False
+        self.position_tracker.stop()
         logger.info("⏹️ Stopping scheduler...")
 
     def add_ticker(self, symbol: str):
@@ -522,5 +442,5 @@ class EvaluationScheduler:
         if symbol in self.active_tickers:
             self.active_tickers.remove(symbol)
             self.ticker_state.pop(symbol, None)
-            self.position_state.pop(symbol, None)
+            self.position_tracker.remove(symbol)
             logger.info("➖ Removed %s from watch list", symbol)
