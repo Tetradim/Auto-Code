@@ -77,7 +77,7 @@ class DecisionQueue:
         self._sequence += 1
         await self._queue.put(item)
         logger.warning(
-            "Queued unsent decision for retry: %s %s (priority=%d, ttl=%.0fs, queue_size=%d)",
+            "retry_queue enqueue symbol=%s decision=%s priority=%d ttl_seconds=%.0f queue_size=%d",
             symbol,
             decision,
             item.priority,
@@ -115,7 +115,7 @@ class DecisionQueue:
                 age = time.time() - item.queued_at
                 if age > item.ttl_seconds:
                     logger.info(
-                        "Dropped stale queued decision: %s %s age=%.1fs ttl=%.1fs",
+                        "retry_queue drop_stale symbol=%s decision=%s age_seconds=%.1f ttl_seconds=%.1f",
                         item.symbol,
                         item.decision,
                         age,
@@ -126,7 +126,7 @@ class DecisionQueue:
                 sent = await send_func(item.endpoint, item.payload)
                 if sent:
                     logger.info(
-                        "Replayed queued decision: %s %s (queued_at=%s)",
+                        "retry_queue replayed symbol=%s decision=%s queued_at=%s",
                         item.symbol,
                         item.decision,
                         item.queued_at_iso,
@@ -162,7 +162,11 @@ class DecisionQueue:
                     )
                     + "\n"
                 )
-        logger.warning("Persisted %d queued decisions to %s", len(pending), self.log_path)
+        logger.warning(
+            "retry_queue flushed_to_file count=%d path=%s",
+            len(pending),
+            self.log_path,
+        )
         return len(pending)
 
     async def stop(self) -> None:

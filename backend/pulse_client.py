@@ -73,14 +73,18 @@ class PulseClient:
                 resp = await probe.get(url)
             if resp.status_code == 200:
                 self.pulse_available = True
-                logger.info("✅ Pulse reachable @ %s — connected mode", self.base_url)
+                logger.info("pulse_health_check ok base_url=%s", self.base_url)
             else:
                 self.pulse_available = False
-                logger.warning("⚠️  Pulse returned HTTP %d — standalone mode", resp.status_code)
+                logger.warning(
+                    "pulse_health_check non_200 status=%d base_url=%s",
+                    resp.status_code,
+                    self.base_url,
+                )
         except Exception as exc:
             self.pulse_available = False
             logger.warning(
-                "⚠️  Pulse not reachable (%s) — standalone mode. Decisions will be queued only when Pulse is reachable.",
+                "pulse_health_check error=%s mode=standalone",
                 exc,
             )
         return self.pulse_available

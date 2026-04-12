@@ -3,13 +3,14 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, Body, HTTPException
+from fastapi import FastAPI, APIRouter, Body, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from prometheus_client import REGISTRY, generate_latest
@@ -60,6 +61,9 @@ edge: SentinelEdge = None
 # ─────────────────────────────────────────────────────────────────────────────
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_RATE_LIMIT_MAX_REQUESTS = 120
+_rate_limit_buckets: Dict[str, list[float]] = {}
 
 
 def _symbol(raw: str) -> str:
@@ -83,6 +87,19 @@ def _require_scheduler() -> EvaluationScheduler:
     if scheduler is None:
         raise HTTPException(status_code=503, detail="Scheduler not initialised")
     return scheduler
+
+
+def _enforce_rate_limit(request: Request) -> None:
+    """Simple fixed-window in-memory rate limiter (per client IP)."""
+    client = request.client.host if request.client else "unknown"
+    now = time.time()
+    recent = _rate_limit_buckets.setdefault(client, [])
+    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+    while recent and recent[0] < cutoff:
+        recent.pop(0)
+    if len(recent) >= _RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    recent.append(now)
 
 
 class MetricToggles(BaseModel):
@@ -229,7 +246,8 @@ async def health():
 
 
 @api_router.get("/stats")
-async def get_stats():
+async def get_stats(request: Request):
+    _enforce_rate_limit(request)
     sched = _require_scheduler()
     return {
         "active_tickers":      sched.active_tickers,
@@ -254,7 +272,8 @@ async def get_market_status():
 
 
 @api_router.get("/queue")
-async def get_retry_queue(limit: int = 100):
+async def get_retry_queue(request: Request, limit: int = 100):
+    _enforce_rate_limit(request)
     sched = _require_scheduler()
     return {
         "stats": sched.pulse.queue_stats(),
