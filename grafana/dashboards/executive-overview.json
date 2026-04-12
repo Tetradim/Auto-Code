@@ -1,0 +1,71 @@
+{
+  "title": "Executive Sentinel Overview",
+  "uid": "sentinel-executive",
+  "tags": ["sentinel", "executive", "orb"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "links": [
+    {
+      "title": "Drilldown: Risk Management",
+      "type": "dashboards",
+      "tags": ["sentinel", "risk"],
+      "asDropdown": false
+    }
+  ],
+  "templating": {
+    "list": [
+      { "name": "symbol", "type": "query", "datasource": "Prometheus", "query": "label_values(analyst_orb_breakouts_total, symbol)", "multi": true, "includeAll": true },
+      { "name": "timeframe", "type": "custom", "query": "5m,15m,30m,1h", "current": { "text": "15m", "value": "15m" } },
+      { "name": "direction", "type": "custom", "query": "bullish,bearish", "current": { "text": "bullish", "value": "bullish" } },
+      { "name": "severity", "type": "custom", "query": "critical,warning,info", "current": { "text": "warning", "value": "warning" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Live Correlation Strength",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "avg(analyst_correlation_clusters_total{symbol=~\"$symbol\",direction=~\"$direction\"})" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 2 }, { "color": "red", "value": 4 } ] } } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active Pulse Overrides",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "sum(analyst_pulse_overrides_total{symbol=~\"$symbol\",severity=~\"$severity\"})" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 10 } ] } } }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "ORB Breakouts (Last 15m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "refId": "A", "expr": "rate(analyst_orb_breakouts_total{symbol=~\"$symbol\",direction=~\"$direction\",timeframe=\"$timeframe\"}[5m])" }],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Top Symbols by Signal Quality",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [{ "refId": "A", "expr": "topk(5, analyst_orb_win_rate{symbol=~\"$symbol\",timeframe=\"$timeframe\"})" }],
+      "options": {
+        "footer": { "show": false },
+        "showHeader": true
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Override Timeline",
+      "description": "Annotations and thresholds for critical intervention bursts.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [{ "refId": "A", "expr": "sum by (action,severity) (rate(analyst_pulse_overrides_total{symbol=~\"$symbol\",severity=~\"$severity\"}[5m]))" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 0.25 } ] } } }
+    }
+  ]
+}

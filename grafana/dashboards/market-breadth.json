@@ -1,0 +1,52 @@
+{
+  "title": "Market Breadth & Correlation",
+  "uid": "sentinel-breadth",
+  "tags": ["sentinel", "breadth", "correlation"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "links": [
+    { "title": "Drilldown: Executive", "type": "dashboards", "tags": ["sentinel", "executive"] }
+  ],
+  "templating": {
+    "list": [
+      { "name": "symbol", "type": "query", "datasource": "Prometheus", "query": "label_values(analyst_correlation_clusters_total, symbol)", "multi": true, "includeAll": true },
+      { "name": "timeframe", "type": "custom", "query": "5m,15m,30m,1h", "current": { "text": "15m", "value": "15m" } },
+      { "name": "direction", "type": "custom", "query": "bullish,bearish", "current": { "text": "bullish", "value": "bullish" } },
+      { "name": "severity", "type": "custom", "query": "critical,warning,info", "current": { "text": "info", "value": "info" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Live Correlation Clusters",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "sum(analyst_correlation_clusters_total{symbol=~\"$symbol\",direction=~\"$direction\"})" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3 }, { "color": "red", "value": 6 }] } } }
+    },
+    {
+      "id": 2,
+      "type": "heatmap",
+      "title": "Correlation Heatmap (Symbol × Direction)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "refId": "A", "expr": "sum by (symbol,direction) (analyst_correlation_clusters_total{symbol=~\"$symbol\",direction=~\"$direction\"})" }]
+    },
+    {
+      "id": 3,
+      "type": "piechart",
+      "title": "Bullish vs Bearish Distribution",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 4 },
+      "targets": [{ "refId": "A", "expr": "sum by (direction) (analyst_correlation_clusters_total{symbol=~\"$symbol\"})" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Rolling 30m Cluster Strength",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 4 },
+      "targets": [{ "refId": "A", "expr": "avg_over_time(analyst_correlation_clusters_total{symbol=~\"$symbol\",direction=~\"$direction\"}[30m])" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 2.5 }, { "color": "red", "value": 4.5 }] } } }
+    }
+  ]
+}

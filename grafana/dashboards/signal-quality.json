@@ -1,0 +1,51 @@
+{
+  "title": "Signal Quality & Performance",
+  "uid": "sentinel-signal-quality",
+  "tags": ["sentinel", "signal-quality"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "templating": {
+    "list": [
+      { "name": "symbol", "type": "query", "datasource": "Prometheus", "query": "label_values(analyst_orb_win_rate, symbol)", "multi": true, "includeAll": true },
+      { "name": "timeframe", "type": "custom", "query": "5m,15m,30m,1h", "current": { "text": "15m", "value": "15m" } },
+      { "name": "direction", "type": "custom", "query": "bullish,bearish", "current": { "text": "bullish", "value": "bullish" } },
+      { "name": "severity", "type": "custom", "query": "critical,warning,info", "current": { "text": "warning", "value": "warning" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "heatmap",
+      "title": "Win Rate by Timeframe & Symbol",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "analyst_orb_win_rate{symbol=~\"$symbol\",timeframe=\"$timeframe\"}" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Signal Confidence (P95)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum(rate(analyst_signal_confidence_bucket{symbol=~\"$symbol\",direction=~\"$direction\"}[5m])) by (le))" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.5 }, { "color": "green", "value": 0.8 }] } } }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "False Positive Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "1 - analyst_orb_win_rate{symbol=~\"$symbol\",timeframe=\"$timeframe\"}" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Edge vs Baseline Pulse (P&L Lift)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "analyst_pnl_lift_vs_pulse{symbol=~\"$symbol\",severity=~\"$severity\"}" }],
+      "links": [
+        { "title": "Open Risk Dashboard", "url": "/d/sentinel-risk", "targetBlank": false }
+      ]
+    }
+  ]
+}

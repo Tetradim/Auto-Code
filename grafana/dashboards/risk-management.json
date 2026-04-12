@@ -1,0 +1,57 @@
+{
+  "title": "Risk Management & Overrides",
+  "uid": "sentinel-risk",
+  "tags": ["sentinel", "risk", "overrides"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "templating": {
+    "list": [
+      { "name": "symbol", "type": "query", "datasource": "Prometheus", "query": "label_values(analyst_pulse_overrides_total, symbol)", "multi": true, "includeAll": true },
+      { "name": "timeframe", "type": "custom", "query": "5m,15m,30m,1h", "current": { "text": "15m", "value": "15m" } },
+      { "name": "direction", "type": "custom", "query": "bullish,bearish", "current": { "text": "bearish", "value": "bearish" } },
+      { "name": "severity", "type": "custom", "query": "critical,warning,info", "current": { "text": "critical", "value": "critical" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Auto-Overrides Sent to Pulse",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "sum by (action,severity) (rate(analyst_pulse_overrides_total{symbol=~\"$symbol\",severity=~\"$severity\"}[5m]))" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 0.35 }] } } }
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Trailing Stop Tightening Events",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "sum by (symbol) (analyst_pulse_overrides_total{symbol=~\"$symbol\",action=\"tighten_trailing\",severity=~\"$severity\"})" }]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Position Size Reductions by Symbol",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "analyst_position_reductions{symbol=~\"$symbol\",direction=~\"$direction\"}" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Drawdown Protection Effectiveness",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "avg(analyst_drawdown_protection_pct{symbol=~\"$symbol\",severity=~\"$severity\"})" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.2 }, { "color": "green", "value": 0.5 }] } } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Override Severity Timeline",
+      "gridPos": { "h": 4, "w": 18, "x": 0, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "sum by (severity) (rate(analyst_pulse_overrides_total{symbol=~\"$symbol\"}[5m]))" }],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    }
+  ]
+}
