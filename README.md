@@ -1,22 +1,42 @@
 # Sentinel Edge
 
-Sentinel Edge is a Blink-powered control plane for monitoring Opening Range Breakout (ORB) activity and coordinating actions with a companion trading service ("Sentinel Pulse").
+Sentinel Edge is an operator dashboard + edge API for managing Opening Range Breakout (ORB) workflows alongside a companion trading engine ("Sentinel Pulse").
 
-It includes:
-- a **React + Vite dashboard** for operators,
-- a **Hono edge API** for analysis/webhooks,
-- and a set of **Python deployment assets** in `src/extracted/` for production-style bot execution and monitoring.
+This repository currently provides:
+
+- a **React/Vite control UI** for monitoring ORB state, breakouts, and bot logs,
+- a **Hono edge service** with analysis + webhook endpoints,
+- **extracted Python/ops artifacts** for Docker/monitoring workflows.
+
+## Current Project Status (Important)
+
+Sentinel Edge is **not production-hardened yet**.
+
+Some logic is still scaffold/demo grade (for example, placeholder price handling in `POST /analyze`).
+Use this repo as a foundation that still needs:
+
+- real market data ingestion,
+- robust authn/authz,
+- stricter risk controls,
+- deployment hardening and end-to-end validation.
 
 ---
 
-## What Sentinel Edge Does
+## Architecture at a Glance
 
-- Tracks configured tickers and evaluates ORB conditions.
-- Surfaces breakout activity and bot logs in a UI.
-- Stores runtime state (settings, ranges, logs, breakouts) in Blink tables.
-- Optionally sends control updates to Sentinel Pulse when breakout criteria are met.
-
-> ⚠️ Current backend analysis logic in `backend/index.ts` includes placeholder/demo values (for example, mock current price handling). Treat it as a scaffold that should be connected to a real market data source before live trading use.
+```text
+[Browser UI]
+   │
+   ├─ Reads/writes Blink tables (settings, orb_ranges, breakouts, bot_logs)
+   │
+   ▼
+[Hono Edge API]  POST /analyze, POST /pulse/webhook
+   │
+   ├─ Reads runtime settings from Blink
+   ├─ Pulls tickers from Sentinel Pulse
+   ├─ Evaluates ORB ranges, writes events/logs
+   └─ Optionally pushes control updates back to Pulse
+```
 
 ---
 
@@ -25,16 +45,21 @@ It includes:
 ```text
 .
 ├── backend/
-│   └── index.ts                  # Hono edge API (/analyze, /pulse/webhook)
+│   └── index.ts
 ├── src/
-│   ├── App.tsx                   # Router + authenticated shell
+│   ├── App.tsx
+│   ├── hooks/useSentinelData.ts
 │   ├── pages/
-│   │   ├── Dashboard.tsx         # Command center view
-│   │   ├── Tickers.tsx           # Ticker analytics/monitoring
-│   │   ├── Logs.tsx              # Alert + log stream
-│   │   └── Settings.tsx          # Runtime configuration
-│   ├── hooks/useSentinelData.ts  # UI data-loading hook(s)
-│   └── extracted/                # Python bot and ops assets
+│   │   ├── Dashboard.tsx
+│   │   ├── Tickers.tsx
+│   │   ├── Logs.tsx
+│   │   └── Settings.tsx
+│   └── extracted/
+│       ├── sentinel_edge_v2.py
+│       ├── Dockerfile
+│       ├── docker-compose.monitoring.yml
+│       ├── prometheus.yml
+│       └── *.md ops/architecture notes
 ├── package.json
 └── README.md
 ```
@@ -43,34 +68,42 @@ It includes:
 
 ## Tech Stack
 
-- **Frontend:** React, TypeScript, Vite, TanStack Router, Blink UI
-- **Backend (edge):** Hono + Blink SDK
-- **Data/Auth:** Blink (`@blinkdotnew/react`, `@blinkdotnew/sdk`)
-- **Ops assets:** Python sidecar, Prometheus/Grafana compose + configs
+- **Frontend:** React + TypeScript + Vite + TanStack Router + Blink UI
+- **Backend:** Hono + Blink SDK
+- **Data/Auth layer:** Blink (`@blinkdotnew/react`, `@blinkdotnew/sdk`)
+- **Ops artifacts:** Python + Docker + Prometheus/Grafana configs
 
 ---
 
 ## Prerequisites
 
 - Node.js 20+
-- npm (or Bun if you prefer Bun-based scripts)
-- A Blink project with valid keys
-- A reachable Sentinel Pulse API (optional for local UI-only work)
+- npm
+- Blink project credentials
+- Reachable Sentinel Pulse API (for integration testing)
+
+> `bun run lint` is configured, but Bun is optional unless you use the aggregate lint script.
 
 ---
 
-## Environment Variables
+## Configuration
 
-Set the variables required by your runtime (local, deploy target, or edge host):
+### Environment variables
 
-- `VITE_BLINK_PROJECT_ID` — Blink project identifier
-- `BLINK_SECRET_KEY` — Blink server secret for backend access
+| Variable | Required | Purpose |
+|---|---:|---|
+| `VITE_BLINK_PROJECT_ID` | Yes | Blink project id used by client/backend initialization |
+| `BLINK_SECRET_KEY` | Yes (backend) | Server credential used by edge API |
 
-If Sentinel Pulse integration is enabled, configure these values in the app settings table/UI:
+### Runtime settings (Blink `settings` table)
 
-- `pulse_api_url`
-- `pulse_api_key` (optional)
-- `auto_control_enabled`
+| Key | Purpose | Example |
+|---|---|---|
+| `pulse_api_url` | Base URL of Sentinel Pulse | `https://pulse.example.com` |
+| `pulse_api_key` | Optional Pulse API key header (`X-API-KEY`) | `secret_value` |
+| `orb_minutes` | Preferred ORB timeframe in UI/settings | `15` |
+| `auto_control_enabled` | Enables automatic control actions (`1` / `0`) | `1` |
+| `pulse_engine_status` | UI status indicator for pulse engine | `running` |
 
 ---
 
@@ -82,78 +115,76 @@ Install dependencies:
 npm install
 ```
 
-Run the frontend:
+Run frontend dev server:
 
 ```bash
 npm run dev
 ```
 
-Build for production:
+Create production build:
 
 ```bash
 npm run build
 ```
 
-Run the full lint/check bundle (uses Bun in current scripts):
+Optional lint/check flows:
 
 ```bash
+npm run lint:types
+npm run lint:js
+npm run lint:css
 bun run lint
 ```
 
 ---
 
-## Backend API Overview
+## Edge API
 
 ### `POST /analyze`
 
-- Reads runtime settings from Blink tables.
-- Pulls ticker data from Sentinel Pulse (`/api/tickers`).
-- Evaluates ORB range rows (currently 15m example key pattern: `${symbol}_15`).
-- Writes breakout + bot log records.
-- Optionally pushes ticker risk-control updates to Pulse.
+High-level behavior:
+
+1. Load runtime settings (`pulse_api_url`, `pulse_api_key`, `auto_control_enabled`).
+2. Fetch enabled tickers from Pulse (`GET {pulse_api_url}/api/tickers`).
+3. Load ORB range records (currently keyed like `${symbol}_15`).
+4. Evaluate breakout logic.
+5. Write `breakouts` + `bot_logs` records.
+6. Optionally send control updates to Pulse (`PUT /api/tickers/{symbol}`).
 
 ### `POST /pulse/webhook`
 
-- Receives trade execution notifications.
-- Persists readable trade log events to `bot_logs`.
+Accepts trade event payloads from Pulse and appends readable entries to `bot_logs`.
 
 ---
 
-## Python/Ops Assets (`src/extracted/`)
+## Data Surfaces Used by the UI
 
-The `src/extracted/` directory contains deploy-oriented assets from the Python monitoring/bot workflow, including:
-
-- `sentinel_edge_v2.py`
-- `Dockerfile`
-- `docker-compose.monitoring.yml`
-- `prometheus.yml`
-- architecture and monitoring notes
-
-These are useful for production packaging and observability, while the TypeScript app provides the control UI and edge endpoints.
+- `orb_ranges` (range values displayed/queried)
+- `breakouts` (event feed)
+- `bot_logs` (alert + audit stream)
+- `settings` (integration and runtime controls)
 
 ---
 
-## Safety Notes
+## Known Gaps Before Live Trading Use
 
-This project interacts with trading infrastructure. Before any live deployment:
-
-- validate price feed integrity,
-- replace placeholder analysis logic,
-- add robust auth/authorization for backend endpoints,
-- implement circuit breakers and strict risk limits,
-- paper-trade and stage test extensively.
+- Replace placeholder/mock pricing in analysis path.
+- Add authenticated user context and real JWT/API verification.
+- Protect backend endpoints with stricter authorization rules.
+- Add retries/timeouts/circuit-breakers for Pulse calls.
+- Add deterministic test coverage for breakout and risk-control paths.
+- Run paper-trading + staging drills before any capital exposure.
 
 ---
 
 ## Scripts
 
 - `npm run dev` — start Vite dev server
-- `npm run build` — production frontend build
+- `npm run build` — build frontend artifacts
 - `npm run preview` — preview build output
+- `npm run lint:types` — type-check with `tsc --noEmit`
 - `npm run lint:js` — ESLint
-- `npm run lint:types` — TypeScript no-emit check
-- `npm run lint:css` — Stylelint + autofix
-- `npm run check:css-vars` — CSS variable validation
-- `npm run check:css-classes` — CSS class validation
-- `npm run lint` — full lint/check pipeline (via Bun)
-
+- `npm run lint:css` — Stylelint
+- `npm run check:css-vars` — validate CSS variable usage
+- `npm run check:css-classes` — validate CSS class references
+- `npm run lint` — aggregate lint/check script (Bun)
