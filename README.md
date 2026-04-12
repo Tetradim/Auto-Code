@@ -2,183 +2,580 @@
 
 **Production-Ready Trading Analyst Sidecar for Sentinel Pulse**
 
-Sentinel Edge is a comprehensive trading analysis system that monitors Opening Range Breakouts (ORB), calculates ATR-based volatility, generates bullish/bearish signals, makes intelligent trading decisions, and exposes full observability via the Grafana LGTM stack.
+Sentinel Edge is a full-stack trading analysis system that monitors Opening Range Breakouts (ORB) across multiple timeframes, calculates ATR-based volatility, generates scored bullish/bearish signals with volume Z-score anomaly detection, makes intelligent autonomous trading decisions, and exposes complete observability through the Grafana LGTM stack (Prometheus, Loki, Tempo, Alertmanager).
+
+It acts as the **Intelligence & Risk Layer** that sits alongside **Sentinel Pulse** (the execution engine) and autonomously controls trailing stops, position sizing, and emergency exits based on real-time market conditions.
 
 ---
 
-## Architecture & Communication
+## Table of Contents
 
-**Sentinel Edge** acts as the **Intelligence & Risk Layer** for **Sentinel Pulse**.
+1. [Architecture](#architecture)
+2. [Repository Layout](#repository-layout)
+3. [Backend — File-by-File Reference](#backend--file-by-file-reference)
+4. [analyst/ Package](#analyst-package)
+5. [Frontend](#frontend)
+6. [Grafana Dashboards](#grafana-dashboards)
+7. [Observability Stack](#observability-stack)
+8. [Prometheus Metrics Reference](#prometheus-metrics-reference)
+9. [Prometheus Alert Rules](#prometheus-alert-rules)
+10. [API Reference](#api-reference)
+11. [Pluggable Signal Strategies](#pluggable-signal-strategies)
+12. [MongoDB Change Stream Command Bus](#mongodb-change-stream-command-bus)
+13. [Testing](#testing)
+14. [Environment Variables](#environment-variables)
+15. [Quick Start](#quick-start)
+
+---
+
+## Architecture
 
 ### Communication Channels (Robust & Redundant)
 
 | Channel | Purpose | Latency | Use Case |
 |---|---|---|---|
-| WebSocket | Real-time signals & confirmations | <100 ms | Primary |
-| Mongo Change Streams | Persistent state & commands | ~200 ms | Reliable fallback |
-| REST (circuit breaker) | One-off overrides & admin actions | 300–800 ms | Fallback |
-| Prometheus | Observability only | — | Metrics |
-| OpenTelemetry (gRPC) | Distributed tracing → Tempo | — | Debugging |
+| WebSocket | Real-time signals & confirmations to Pulse | <100 ms | Primary live path |
+| MongoDB Change Streams | Persistent commands & cross-service state | ~200 ms | Reliable fallback |
+| REST (circuit breaker) | One-off control actions & admin overrides | 300–800 ms | Last-resort fallback |
+| Prometheus `/metrics` | Observability scraping | — | Metrics only |
+| OpenTelemetry gRPC | Distributed tracing → Grafana Tempo | — | Debugging |
 
 ### System Diagram
 
 ```
-  ┌──────────────────────────────────────────────────────┐
-  │                   Sentinel Edge                       │
-  │                                                      │
-  │  ┌─────────────┐   ┌──────────────────────────────┐  │
-  │  │  analyst/   │   │  EvaluationScheduler          │  │
-  │  │  core.py    │◄──│  (ORB + ATR + Signal + Eng)  │  │
-  │  │  SentinelEdge    └──────────────────────────────┘  │
-  │  └──────┬──────┘                                     │
-  │         │ WebSocket / REST / Change Streams           │
-  │  ┌──────▼─────────────────────────────────────────┐  │
-  │  │       analyst/correlation/engine.py             │  │
-  │  │       CorrelationEngine  (120 s window)         │  │
-  │  │       ≥3 symbols same direction → cluster       │  │
-  │  │       BEARISH + strength>0.65 → Pulse override  │  │
-  │  └─────────────────────────────────────────────────┘  │
-  │                                                      │
-  │  Prometheus /metrics (:8001)  OTel gRPC (:4317)     │
-  └──────────────────────────────────────────────────────┘
-                          │  REST/WS
-              ┌───────────▼───────────┐
-              │     Sentinel Pulse    │
-              │   (execution engine)  │
-              └───────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                        Sentinel Edge (port 8001)                     │
+  │                                                                     │
+  │  ┌──────────────────────┐   ┌─────────────────────────────────────┐ │
+  │  │  analyst/core.py     │   │  EvaluationScheduler (scheduler.py) │ │
+  │  │  SentinelEdge        │◄──│  • Ticker loop (every 1 s)          │ │
+  │  │  • OTel tracing      │   │  • PriceFetcher (yfinance, 5 s cache)│ │
+  │  │  • WebSocket ↔ Pulse │   │  • ORBTracker  (5m / 15m / 30m)     │ │
+  │  │  • Change stream bus │   │  • ATRCalculator (14-period)         │ │
+  │  │  • Plugin discovery  │   │  • SignalEngine (5-layer scoring)    │ │
+  │  └──────────┬───────────┘   │  • DecisionEngine (risk guards)      │ │
+  │             │ shares        └────────────────┬────────────────────┘ │
+  │  ┌──────────▼─────────────────────────────┐  │                      │
+  │  │  analyst/correlation/engine.py          │◄─┘                      │
+  │  │  CorrelationEngine                      │                         │
+  │  │  • 120 s rolling window per symbol      │                         │
+  │  │  • ≥ 3 symbols same direction → cluster │                         │
+  │  │  • BEARISH cluster → Pulse override     │                         │
+  │  └─────────────────────────────────────────┘                         │
+  │                                                                     │
+  │  /metrics (Prometheus)  :8001     OTel gRPC → Tempo :4317           │
+  └──────────────────────┬──────────────────────────────────────────────┘
+                         │  REST / WebSocket / Change Streams
+             ┌───────────▼──────────────┐
+             │     Sentinel Pulse        │
+             │  (trade execution engine) │
+             └───────────────────────────┘
+```
+
+### Decision Flow (per ticker, every evaluation cycle)
+
+```
+  PriceFetcher.get_price_with_volume(symbol)
+          │
+          ▼
+  SignalEngine.update_avg_volume()
+  SignalEngine.compute_volume_zscore()     ← rolling 60-reading z-score
+          │
+          ▼
+  ORBTracker.update(symbol, price, ts)     ← update / auto-lock ranges
+  ORBTracker.check_breakout(symbol, price) ← emit breakout events
+          │
+          ▼
+  ATRCalculator.update(symbol, H, L, C)   ← 14-period true range
+          │
+          ▼
+  SignalEngine.evaluate_signal(            ← 5-layer ±10 score
+      orb_high, orb_low,
+      volume_ratio, atr,
+      price_change_pct, volume_zscore
+  )
+          │
+          ▼
+  DecisionEngine.decide(                   ← risk-guarded Decision enum
+      trend, signal_strength,
+      pnl_pct, drawdown,
+      has_position, trailing_enabled
+  )
+          │
+          ├── BUY / STOP_BUYING → PulseClient.send_override()
+          ├── ENABLE_TRAILING_STOP → PulseClient.update_ticker()
+          ├── TIGHTEN_TRAILING_STOP → PulseClient.update_ticker()
+          └── EMERGENCY_EXIT → PulseClient.emergency_stop()
+
+  CorrelationEngine.record_signal()        ← feeds cluster detection
 ```
 
 ---
 
-## Key Features
+## Repository Layout
 
-### Backend (Python FastAPI)
-- **Multi-timeframe ORB Detection** — 5 m, 15 m, 30 m
-- **ATR Calculation** — dynamic trailing stop sizing
-- **Signal Analysis** — volume confirmation, price momentum, volatility adjustment
-- **Decision Engine** — BUY / STOP / TRAILING / TIGHTEN / EXIT with risk guards
-- **Circuit Breaker Pattern** — Pulse API resilience
-- **Market Hours Tracking** — 7 global exchanges
-- **40+ Prometheus Metrics** at `/metrics`
-- **MongoDB State Persistence** — ORB levels survive restarts
-- **Correlation Detection** — 2-min rolling window, cluster alerts, auto Pulse override
-- **Decision Feed** — last 50 non-HOLD decisions exposed at `/api/decisions`
-
-### analyst/ Package
-| Module | Role |
-|---|---|
-| `analyst/core.py` | `SentinelEdge` orchestrator — OTel + WS + change stream |
-| `analyst/correlation/engine.py` | Full correlation engine (canonical) |
-| `analyst/signals/base.py` | `Signal` dataclass, `BaseSignal` ABC, `SignalConfig` |
-| `analyst/signals/custom/` | Drop-in strategy plugins |
-| `analyst/exporters/prometheus.py` | Pluggable Prometheus exporter |
-| `analyst/observability/otel.py` | gRPC OTLP, HTTPXClientInstrumentor, AsyncioInstrumentor |
-
-### Frontend (TypeScript + React + Vite)
-- **4 Dashboards:** Trading Overview · Broker Health · P&L Tracking · Market Coverage
-- **Decision Feed** — live log of BUY / STOP / EXIT decisions
-- **Market Breadth panel** — bull/bear % bar + correlation cluster card
-- **Add / Remove Tickers** — live ticker management
-- **Mock Data Mode** — simulated drifting prices for demo/dev
-
-### Observability (LGTM Stack)
-| Component | Port | Purpose |
-|---|---|---|
-| Prometheus | 9090 | Metrics collection |
-| Grafana | 3001 | Dashboards + alerts |
-| Loki | 3100 | Log aggregation |
-| Tempo | 3200 / 4317 | Distributed traces |
-| Promtail | — | Log shipper |
-| AlertManager | 9093 | Alert routing |
+```
+sentinel-edge/
+│
+├── backend/                          # Python FastAPI application
+│   ├── server.py                     # App entrypoint — FastAPI, lifespan, all routes
+│   ├── scheduler.py                  # EvaluationScheduler — main ticker evaluation loop
+│   ├── engine.py                     # DecisionEngine — BUY/STOP/EXIT/TIGHTEN logic
+│   ├── signals.py                    # SignalEngine — 5-layer ±10 score + volume Z-score
+│   ├── orb.py                        # ORBTracker — multi-timeframe ORB (5m/15m/30m)
+│   ├── atr.py                        # ATRCalculator — 14-period true range
+│   ├── price_fetcher.py              # PriceFetcher — yfinance with 5 s in-memory cache
+│   ├── pulse_client.py               # PulseClient — circuit-breaker HTTP client for Pulse
+│   ├── market_hours.py               # MarketHours — NYSE, NASDAQ, LSE, TSE, HKEX, SSE, BSE
+│   ├── metrics.py                    # All 40+ prometheus_client metric definitions
+│   ├── correlation.py                # Backward-compat shim → analyst/correlation/engine.py
+│   ├── Dockerfile                    # Python 3.12-slim image
+│   ├── requirements.txt              # Pinned Python dependencies
+│   │
+│   ├── analyst/                      # Orchestration & extensibility layer
+│   │   ├── core.py                   # SentinelEdge — OTel, WebSocket, change streams
+│   │   ├── correlation/
+│   │   │   └── engine.py             # CorrelationEngine (canonical location)
+│   │   ├── signals/
+│   │   │   ├── base.py               # BaseSignal ABC, Signal dataclass, SignalConfig
+│   │   │   ├── __init__.py           # discover_plugins() — auto-scans custom/
+│   │   │   └── custom/
+│   │   │       └── vwap_breakout.py  # Example plugin: VWAP cross + volume confirmation
+│   │   ├── exporters/
+│   │   │   └── prometheus.py         # PrometheusExporter — optional standalone :8002
+│   │   ├── observability/
+│   │   │   └── otel.py               # setup_otel(), instrument_fastapi(), get_tracer()
+│   │   └── webhook/
+│   │       └── alert_handler.py      # Alertmanager webhook receiver (/api/webhook/alert)
+│   │
+│   └── tests/                        # pytest test suite
+│       ├── test_sentinel_edge.py     # ORB, ATR, signal, decision integration tests
+│       ├── test_p1_features.py       # Volume Z-score, TIGHTEN_TRAILING_STOP, plugins
+│       ├── test_correlation_engine.py# CorrelationEngine cluster detection tests
+│       └── test_decision_feed_and_tickers.py
+│
+├── frontend/                         # TypeScript + React + Vite dashboard
+│   ├── src/
+│   │   ├── App.tsx                   # Root — routing, layout
+│   │   ├── components/
+│   │   │   ├── dashboards/           # 6 dashboard panels (TradingOverview, BrokerHealth …)
+│   │   │   ├── cards/                # MetricCard, ChartCard, TickerCard
+│   │   │   └── ui/                   # shadcn/ui component library (30+ primitives)
+│   │   ├── store/useStore.ts         # Zustand global state store
+│   │   ├── lib/
+│   │   │   ├── api.ts                # typed API client (axios)
+│   │   │   └── mockData.ts           # drifting mock prices for dev/demo
+│   │   └── types/index.ts            # Shared TypeScript interfaces
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── grafana/
+│   ├── dashboards/                   # Auto-provisioned dashboard JSON files
+│   │   ├── analyst-overview.json     # Engine state, ORB rate, ATR heatmap, latency
+│   │   ├── correlation-breadth.json  # Cluster table, bull/bear pie, breadth timeseries
+│   │   ├── trading_overview.json     # ORB levels, signal strength, current prices
+│   │   ├── broker_health.json        # Circuit breaker state, Pulse API latency
+│   │   ├── pnl_tracking.json         # Realised / unrealised P&L, win rate
+│   │   ├── market_coverage.json      # Global exchange open/closed status
+│   │   ├── executive-overview.json   # ★ NEW — KPI tiles, ORB breakout rate, override timeline
+│   │   ├── market-breadth.json       # ★ NEW — Correlation heatmap, bull/bear distribution
+│   │   ├── risk-management.json      # ★ NEW — Auto-overrides, trailing stop events, drawdown
+│   │   └── signal-quality.json       # ★ NEW — Win rate heatmap, signal confidence P95, P&L lift
+│   └── provisioning/
+│       ├── dashboards/
+│       │   └── sentinel_edge.yml     # Provider config → /var/lib/grafana/dashboards
+│       └── datasources/
+│           └── prometheus.yml        # Prometheus + Loki + Tempo datasource definitions
+│
+├── prometheus/
+│   ├── prometheus.yml                # Scrape configs (sentinel-edge :8001, :8002, cadvisor …)
+│   ├── rules.yml                     # Recording rules
+│   └── alerts/
+│       └── sentinel_edge_rules.yml   # 11 alert rules (see Alert Rules section)
+│
+├── docker-compose.yml                # Full LGTM stack (see Observability section)
+├── Dockerfile                        # Root-level image (alternative build target)
+├── IMPLEMENTATION_PLAN.md            # Engineering roadmap
+└── README.md                         # This file
+```
 
 ---
 
-## Grafana Dashboards (Auto-Provisioned)
+## Backend — File-by-File Reference
 
-| Dashboard | UID | Panels |
+### `backend/server.py` — Application Entrypoint
+FastAPI application with async lifespan. On startup, instantiates all components (PulsClient, PriceFetcher, ORBTracker, ATRCalculator, SignalEngine, DecisionEngine, MarketHours), wires them into `EvaluationScheduler`, creates the `SentinelEdge` orchestrator, and starts background tasks. Registers all API routes under `/api`, the Prometheus `/metrics` endpoint, and the Alertmanager webhook receiver.
+
+### `backend/scheduler.py` — Evaluation Loop
+`EvaluationScheduler` runs an `asyncio` loop that evaluates every active ticker approximately once per second during market hours. For each ticker it fetches price + volume, updates the ORB tracker and ATR calculator, scores the signal, makes a decision, and forwards non-HOLD decisions to Pulse. Maintains `ticker_state` (enriched live data for the API) and `recent_decisions` (last 50 non-HOLD decisions for the decision feed). Supports `pause()` / `resume()` / `add_ticker()` / `remove_ticker()` at runtime.
+
+### `backend/engine.py` — Decision Engine
+`DecisionEngine` translates a `(TrendDirection, signal_strength)` pair into a `Decision` enum value, applying risk guards first:
+
+| Decision | Condition |
+|---|---|
+| `EMERGENCY_EXIT` | ≥ 3 consecutive losses **or** drawdown > 10 % |
+| `TIGHTEN_TRAILING_STOP` | trailing active + signal ≥ 7 + PnL > 5 % |
+| `ENABLE_TRAILING_STOP` | has position + PnL > 2 % + trailing not yet active |
+| `TIGHTEN_STOP` | has position + bearish reversal (strength < −3) |
+| `BUY` | bullish + strength ≥ 5 (unconditional) or ≥ 3 (< 2 loss streak) |
+| `STOP_BUYING` | bearish + strength ≤ −5 (or −3 if has position) |
+| `HOLD` | everything else |
+
+Tracks consecutive losses, win rate, and total trades per symbol and updates Prometheus counters on every decision.
+
+### `backend/signals.py` — Signal Scoring Engine
+`SignalEngine` produces a float score in **[−10, +10]** from five independent layers:
+
+| Layer | Range | Logic |
 |---|---|---|
-| Analyst Overview | `se-analyst-overview` | 16 — engine state, ORB rate, ATR heatmap, signal strength, ticker table, latency |
-| Correlation Breadth | `se-correlation-breadth` | 8 — cluster table, bull/bear pie, detection rate, breadth timeseries |
-| Trading Overview | `trading-overview` | Existing 8-panel ORB + signal overview |
-| Broker Health | `broker-health` | Circuit breaker metrics |
-| P&L Tracking | `pnl-tracking` | Realized / unrealized P&L |
-| Market Coverage | `market-coverage` | Global market hours |
+| 1. ORB breakout | ±3 | price above/below locked ORB high/low |
+| 2. Volume confirmation | ±2 | volume ratio vs EMA average; low ratio dampens score |
+| 3. Price momentum | ±2 | price_change_pct thresholds at ±1 % and ±2 % |
+| 4. Volatility adjustment | ±1 | high ATR/price > 4 % dampens; low < 1 % boosts |
+| 5. Volume Z-score anomaly | ±2 | z ≥ 3.5 = extreme boost; z ≤ −1.5 = dampened |
+
+Score ≥ 2 → `BULLISH`, ≤ −2 → `BEARISH`, otherwise `NEUTRAL`.
+
+### `backend/orb.py` — ORB Tracker
+`ORBTracker` maintains per-symbol ORB levels for three timeframes (5 m, 15 m, 30 m). Each level auto-locks when the configured window elapses from market open (09:30 ET). Once locked, `check_breakout()` emits breakout events and increments the `edge_orb_breakouts_total` counter. Levels reset automatically on a new trading day (date mismatch). Persists high/low/range-width to Prometheus gauges in real time.
+
+### `backend/atr.py` — ATR Calculator
+`ATRCalculator` computes a 14-period simple moving average of True Range from a rolling deque of (High, Low, Close) bars. Exposes `get_trailing_stop_offset(symbol, multiplier=2.0)` and `is_high_volatility(symbol, threshold_pct=3.0)` helpers. Updates `edge_atr_value` and `edge_volatility_percentile` metrics continuously.
+
+### `backend/price_fetcher.py` — Price Data
+`PriceFetcher` wraps yfinance with a 5-second in-memory cache. Provides:
+- `get_current_price(symbol)` — latest Close
+- `get_price_with_volume(symbol)` — Close + Volume (used by the scheduler)
+- `get_ohlcv(symbol, period, interval)` — full OHLCV DataFrame for ATR seeding
+
+Tracks fetch latency (`price_fetch_latency` histogram) and failure counts per symbol.
+
+### `backend/pulse_client.py` — Pulse API Client
+`PulseClient` uses a **circuit breaker** pattern (half-open after 60 s, opens after 5 failures) to make the Pulse REST API resilient to network issues. Exposes `send_override(symbol, action, params)`, `update_ticker(symbol, config)`, and `emergency_stop()`. All calls are retried once after a short backoff.
+
+### `backend/market_hours.py` — Global Market Hours
+`MarketHours` tracks open/closed/lunch-break status for 7 exchanges: NYSE, NASDAQ, LSE, TSE (with lunch), HKEX (with lunch), SSE (with lunch), and BSE. Used by the scheduler to gate evaluations to active market hours. Exposes `/api/markets` endpoint showing real-time status for all exchanges.
+
+### `backend/metrics.py` — Prometheus Definitions
+Central module that defines every `prometheus_client` metric object (Counter, Gauge, Histogram, Info). All other modules import metric objects from here — no metric is defined inline in business logic. See [Prometheus Metrics Reference](#prometheus-metrics-reference) for the full list.
+
+### `backend/correlation.py` — Backward-Compat Shim
+Thin re-export of `analyst/correlation/engine.py`. Allows `from correlation import CorrelationEngine` in legacy code while the canonical implementation lives in the `analyst/` package.
+
+---
+
+## analyst/ Package
+
+The `analyst/` package extends the core backend with advanced orchestration, extensibility, and observability capabilities.
+
+### `analyst/core.py` — SentinelEdge Orchestrator
+The top-level `SentinelEdge` class wraps `EvaluationScheduler` and adds:
+
+- **OpenTelemetry** — `setup_otel()` initialises gRPC OTLP export to Tempo. Every evaluation cycle is instrumented with spans and attributes.
+- **WebSocket ↔ Pulse** — bidirectional connection for sub-100 ms signal delivery. Falls back to REST on disconnect.
+- **MongoDB Change Stream** — listens to the `analyst_commands` collection for commands (pause, resume, add_ticker, override) without a REST round-trip. Requires a MongoDB replica set.
+- **Plugin discovery** — calls `discover_plugins()` on startup, auto-registering all `BaseSignal` subclasses from `analyst/signals/custom/`.
+- **Shared CorrelationEngine** — replaces the scheduler's own correlation engine with the `SentinelEdge` instance so both share a single event window.
+
+### `analyst/correlation/engine.py` — Correlation Engine
+`CorrelationEngine` maintains a 120-second rolling window of signal events per symbol. When ≥ 3 symbols break out in the same direction within the window, it:
+1. Emits a cluster event
+2. Persists to MongoDB (`correlation_clusters` collection)
+3. Increments `correlation_clusters_total` Prometheus counter
+4. If the cluster is bearish **and** mean confidence > 0.65, fires a Pulse override (`tighten_trailing_global` or `emergency_stop`)
+5. Respects a per-direction 300-second cooldown to prevent alert storms
+
+Exposes `get_recent_clusters()` / `get_current_breadth()` / `get_latest_cluster()` for the REST API.
+
+### `analyst/signals/base.py` — Plugin Interface
+
+```python
+@dataclass
+class Signal:
+    symbol: str
+    action: str          # "BUY" | "SELL" | "HOLD"
+    confidence: float    # 0.0 – 1.0
+    reason: str
+    timeframe: str
+    price: float
+    timestamp: datetime
+
+class BaseSignal(ABC):
+    name: str            # unique identifier
+    version: str
+    description: str
+    tags: list[str]
+    requires_history_bars: int = 0
+
+    @abstractmethod
+    async def generate(
+        self,
+        symbol: str,
+        market_data: Dict[str, Any],
+    ) -> Optional[Signal]: ...
+```
+
+### `analyst/signals/custom/vwap_breakout.py` — Built-in Plugin
+VWAP (Volume-Weighted Average Price) cross with volume confirmation. Computes cumulative VWAP from OHLCV history, signals BUY when `price > VWAP × (1 + buffer)` and `volume_ratio ≥ 1.25`, SELL for the inverse. Confidence scales with distance from VWAP and volume ratio. A volume Z-score above the configured threshold provides an additional confidence boost.
+
+### `analyst/observability/otel.py`
+Initialises the OpenTelemetry SDK with gRPC OTLP export. Patches `HTTPXAsyncClient` and asyncio for automatic instrumentation. Provides `instrument_fastapi(app)` for automatic request span generation and `get_tracer(name)` for manual span creation.
+
+### `analyst/webhook/alert_handler.py`
+FastAPI router (`/api/webhook/alert`, `/api/webhook/health`) that receives Alertmanager POST webhooks. Maps alert names to autonomous actions: `HighConsecutiveLosses` → pause scheduler, `HighDrawdown` → emergency exit all positions, `BearishClusterOverride` → tighten stops globally. Validates an optional `WEBHOOK_SECRET` shared with Alertmanager.
+
+---
+
+## Frontend
+
+The React/TypeScript frontend (`frontend/`) provides a real-time operations dashboard.
+
+### Dashboard Panels
+
+| Component | File | Description |
+|---|---|---|
+| Trading Overview | `dashboards/TradingOverview.tsx` | Live price, signal strength, ORB levels, trend indicator per ticker |
+| Broker Health | `dashboards/BrokerHealth.tsx` | Pulse API circuit breaker state, response times, failure counts |
+| P&L Tracking | `dashboards/PnLTracking.tsx` | Realised / unrealised P&L, win rate, consecutive loss streak |
+| Market Breadth | `dashboards/MarketBreadth.tsx` | Bull/bear % bar, correlation cluster card, latest cluster details |
+| Decision Feed | `dashboards/DecisionFeed.tsx` | Live log of last 50 non-HOLD decisions with timestamp and price |
+| Market Coverage | `dashboards/MarketCoverage.tsx` | Global exchange open/closed status with countdown |
+
+### Key Libraries
+
+| Library | Use |
+|---|---|
+| React 18 + TypeScript | UI framework |
+| Vite | Dev server & bundler |
+| Zustand | Global state (`useStore.ts`) |
+| axios (`lib/api.ts`) | Typed API client |
+| shadcn/ui | 30+ accessible UI primitives |
+| Recharts | Metric charts |
+| Tailwind CSS | Utility-first styling |
+
+### Mock Data Mode
+Set `VITE_MOCK_DATA=true` to enable drifting simulated prices without a backend connection. Useful for UI development and demos.
+
+---
+
+## Grafana Dashboards
+
+All dashboards live in `grafana/dashboards/` and are **auto-provisioned** by Grafana on startup via `grafana/provisioning/dashboards/sentinel_edge.yml` (provider path: `/var/lib/grafana/dashboards`). No manual import needed.
+
+The provisioning YAML is mounted read-only at `/etc/grafana/provisioning/dashboards/` while the dashboard JSON files are mounted separately at `/var/lib/grafana/dashboards/` — preventing the common volume-shadowing bug where a directory mount silently hides a sibling file mount.
+
+### Dashboard Inventory
+
+#### Existing Dashboards
+
+| File | Title | UID | Key Panels |
+|---|---|---|---|
+| `analyst-overview.json` | Sentinel Edge — Analyst Overview | `se-analyst-overview` | Engine state, ORB breakout rate, ATR heatmap, per-symbol signal strength, decision table, evaluation latency p99 |
+| `correlation-breadth.json` | Sentinel Edge — Market Breadth & Correlation | `se-correlation-breadth` | Active clusters table, bull/bear pie, cluster detection rate, breadth timeseries |
+| `trading_overview.json` | Trading Overview | varies | Live ORB high/low levels, current prices, signal strength per timeframe |
+| `broker_health.json` | Broker Health | varies | Pulse API circuit breaker state, REST latency histogram, failure rate |
+| `pnl_tracking.json` | P&L Tracking | varies | Realised / unrealised P&L, win rate gauge, consecutive loss counter |
+| `market_coverage.json` | Market Coverage | varies | NYSE / NASDAQ / LSE / TSE / HKEX open status, minutes to close |
+
+#### New Dashboards (from `codex/continue-sentinel-edge-readme-rework-jejpy8`)
+
+| File | Title | UID | Key Panels | Template Variables |
+|---|---|---|---|---|
+| `executive-overview.json` | Executive Sentinel Overview | `sentinel-executive` | Live correlation strength stat, active Pulse overrides count, ORB breakout rate timeseries, top symbols by win rate table, override timeline with severity thresholds | `symbol`, `timeframe`, `direction`, `severity` |
+| `market-breadth.json` | Market Breadth & Correlation | `sentinel-breadth` | Live cluster count stat, correlation heatmap (symbol × direction), bull/bear pie chart, rolling 30 m cluster strength | `symbol`, `timeframe`, `direction`, `severity` |
+| `risk-management.json` | Risk Management & Overrides | `sentinel-risk` | Auto-overrides sent to Pulse (timeseries), trailing stop tightening events (bar chart), position size reductions (table), drawdown protection effectiveness %, override severity timeline | `symbol`, `timeframe`, `direction`, `severity` |
+| `signal-quality.json` | Signal Quality & Performance | `sentinel-signal-quality` | Win rate heatmap (symbol × timeframe), signal confidence P95 timeseries, false positive rate, P&L lift vs baseline Pulse | `symbol`, `timeframe`, `direction`, `severity` |
+
+#### Dashboard Metrics Reference
+
+The new dashboards query the following `analyst_*` metrics (exposed by the `analyst/` package):
+
+| Metric | Type | Description |
+|---|---|---|
+| `analyst_orb_breakouts_total` | Counter | `{symbol, direction, timeframe}` — total breakouts detected |
+| `analyst_orb_win_rate` | Gauge | `{symbol, timeframe}` — win rate for ORB signals (0–1) |
+| `analyst_signal_confidence` | Histogram | `{symbol, direction}` — signal confidence distribution |
+| `analyst_correlation_clusters_total` | Counter | `{symbol, direction}` — correlation cluster events |
+| `analyst_pulse_overrides_total` | Counter | `{symbol, action, severity}` — Pulse override commands sent |
+| `analyst_position_reductions` | Gauge | `{symbol, direction}` — position size reduction events |
+| `analyst_drawdown_protection_pct` | Gauge | `{symbol, severity}` — drawdown protection effectiveness |
+| `analyst_pnl_lift_vs_pulse` | Gauge | `{symbol, severity}` — P&L improvement over baseline Pulse |
+
+#### Adding More Dashboards
+
+Drop additional `*.json` files into `grafana/dashboards/` — they are provisioned automatically without restarting Grafana (the provider polls every 10 seconds, `updateIntervalSeconds: 10`).
+
+---
+
+## Observability Stack
+
+Deployed via `docker-compose.yml`:
+
+| Service | Image | Port(s) | Purpose |
+|---|---|---|---|
+| `sentinel-edge` | `./backend` | 8001, 8002 | FastAPI + `/metrics` + analyst metrics |
+| `mongodb` | `mongo:7.0` | 27017 | State persistence + Change Streams (replica set `rs0`) |
+| `mongodb-init` | `mongo:7.0` | — | One-shot: `rs.initiate()` after MongoDB is healthy |
+| `prometheus` | `prom/prometheus:2.53` | 9090 | Metrics scraping + alerting rules evaluation |
+| `alertmanager` | `prom/alertmanager` | 9093 | Alert routing → webhook receiver |
+| `grafana` | `grafana/grafana:10.4.2` | 3001 | Dashboards + provisioning |
+| `loki` | `grafana/loki` | 3100 | Log aggregation |
+| `promtail` | `grafana/promtail` | — | Log shipping (Docker log driver → Loki) |
+| `tempo` | `grafana/tempo` | 3200, 4317 | Distributed trace storage |
+| `frontend` | `./frontend` | 3000 | React operations dashboard |
+
+### Datasource Correlations
+
+Grafana is provisioned with all three LGTM datasources wired together:
+- **Prometheus → Tempo**: exemplar links on metric panels open the related trace in Tempo
+- **Loki → Tempo**: log lines with `"trace_id"` become clickable trace links
+- **Tempo → Loki**: traces show correlated logs in the sidebar
+
+---
+
+## Prometheus Metrics Reference
+
+All core metrics use the `edge_` prefix. The `analyst/` package exposes additional `analyst_` metrics.
+
+### ORB Metrics (`edge_orb_*`)
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `edge_orb_breakouts_total` | Counter | `symbol`, `direction`, `timeframe` | Total breakouts detected |
+| `edge_orb_high` | Gauge | `symbol`, `timeframe` | Locked ORB high level |
+| `edge_orb_low` | Gauge | `symbol`, `timeframe` | Locked ORB low level |
+| `edge_orb_range_width` | Gauge | `symbol`, `timeframe` | ORB range width (high − low) |
+
+### Signal Metrics (`edge_signal_*`, `edge_trend_*`, `edge_volume_*`)
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `edge_signal_strength` | Gauge | `symbol` | Current score −10 to +10 |
+| `edge_trend_direction` | Gauge | `symbol` | 1 = bullish, 0 = neutral, −1 = bearish |
+| `edge_volume_ratio` | Gauge | `symbol` | Current volume ÷ EMA average |
+| `edge_volume_zscore` | Gauge | `symbol` | Volume rolling z-score (60-reading window) |
+| `edge_atr_value` | Gauge | `symbol`, `period` | ATR value |
+| `edge_volatility_percentile` | Gauge | `symbol` | ATR/price × 100 |
+
+### Decision Metrics (`edge_decision_*`)
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `edge_decision_total` | Counter | `symbol`, `decision` | Decisions by type |
+| `edge_active_positions` | Gauge | `symbol` | Active position count |
+| `edge_consecutive_losses` | Gauge | `symbol` | Current loss streak |
+| `edge_win_rate` | Gauge | `symbol` | Win rate (0–100 %) |
+
+### Infrastructure Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `current_price` | Gauge | `symbol` | Live price |
+| `price_fetch_latency` | Histogram | `source` | yfinance fetch duration |
+| `price_fetch_failures_total` | Counter | `symbol`, `source` | Fetch failures |
+| `pulse_override_total` | Counter | `symbol`, `action` | Overrides sent to Pulse |
+| `pulse_circuit_state` | Gauge | — | 0 = closed, 1 = open, 2 = half-open |
+| `evaluation_duration_seconds` | Histogram | `symbol` | End-to-end evaluation latency |
+| `market_open_status` | Gauge | `market` | 1 = open, 0 = closed |
+| `correlation_clusters_total` | Counter | `direction` | Cluster detection events |
 
 ---
 
 ## Prometheus Alert Rules
 
-| Alert | Severity | Condition |
-|---|---|---|
-| `EdgeEngineDown` | critical | engine not running > 1 m |
-| `EdgeEnginePaused` | warning | engine paused > 10 m |
-| `HighConsecutiveLosses` | warning | consecutive losses > 3 |
-| `LowWinRate` | warning | win rate < 40 % for 30 m |
-| `SlowEvaluation` | warning | eval p99 > 1 s for 3 m |
-| `PriceFetchFailures` | warning | fetch failures > 0.5/s |
-| `CorrelationBearishCluster` | warning | bearish cluster detected |
-| `HighDrawdown` | critical | drawdown > 8 % |
-| `StrongCorrelationCluster` | warning | high-strength clusters > 1 |
-| `BearishClusterOverride` | critical | high-strength bearish cluster (Pulse override sent) |
-| `HighPulseOverrideRate` | warning | override rate > 0.5/s |
+Defined in `prometheus/alerts/sentinel_edge_rules.yml`:
+
+| Alert Name | Severity | Trigger Condition | Auto-Action |
+|---|---|---|---|
+| `EdgeEngineDown` | critical | engine not running > 1 m | — |
+| `EdgeEnginePaused` | warning | engine paused > 10 m | — |
+| `HighConsecutiveLosses` | warning | any symbol consecutive losses ≥ 3 | Webhook → pause scheduler |
+| `LowWinRate` | warning | win rate < 40 % sustained 30 m | — |
+| `SlowEvaluation` | warning | evaluation p99 > 1 s for 3 m | — |
+| `PriceFetchFailures` | warning | fetch failure rate > 0.5 /s | — |
+| `CorrelationBearishCluster` | warning | bearish cluster detected | — |
+| `HighDrawdown` | critical | drawdown > 8 % | Webhook → emergency exit all |
+| `StrongCorrelationCluster` | warning | high-strength clusters > 1 | — |
+| `BearishClusterOverride` | critical | high-strength bearish cluster → Pulse override sent | Webhook → tighten stops globally |
+| `HighPulseOverrideRate` | warning | override rate > 0.5 /s | — |
+
+Alerts route via `prometheus/alertmanager.yml` to a webhook that hits `/api/webhook/alert` for autonomous remediation.
 
 ---
 
 ## API Reference
 
+Base URL: `http://localhost:8001`
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/health` | Health check |
-| GET | `/api/tickers` | Enriched live ticker data |
-| POST | `/api/tickers/{symbol}` | Add ticker |
-| DELETE | `/api/tickers/{symbol}` | Remove ticker |
-| GET/PUT | `/api/tickers/{symbol}/config` | Prometheus metric toggles |
-| GET | `/api/stats` | System stats |
-| GET | `/api/orb/{symbol}` | ORB levels for symbol |
-| GET | `/api/correlation` | Correlation clusters + breadth + latest |
-| GET | `/api/decisions` | Last 50 non-HOLD decisions |
-| GET | `/api/markets` | Global market open/closed status |
-| POST | `/api/control/pause` | Pause scheduler |
-| POST | `/api/control/resume` | Resume scheduler |
-| GET | `/metrics` | Prometheus scrape endpoint |
+| `GET` | `/api/health` | Liveness check — running, paused, active ticker count |
+| `GET` | `/api/tickers` | All active tickers with enriched live state (price, signal, ORB, ATR) |
+| `POST` | `/api/tickers/{symbol}` | Add ticker to watch list |
+| `DELETE` | `/api/tickers/{symbol}` | Remove ticker |
+| `GET` | `/api/tickers/{symbol}/config` | Per-ticker metric enable/disable config |
+| `PUT` | `/api/tickers/{symbol}/config` | Update per-ticker metric config (persisted to MongoDB) |
+| `GET` | `/api/orb/{symbol}` | ORB levels for all timeframes (5m/15m/30m) |
+| `GET` | `/api/decisions` | Last 50 non-HOLD decisions (decision feed) |
+| `GET` | `/api/correlation` | Cluster list + market breadth + latest cluster |
+| `GET` | `/api/markets` | Global exchange open/closed status |
+| `GET` | `/api/stats` | System stats (tickers, circuit state, failure count) |
+| `POST` | `/api/control/pause` | Pause the evaluation scheduler |
+| `POST` | `/api/control/resume` | Resume the evaluation scheduler |
+| `POST` | `/api/webhook/alert` | Alertmanager webhook receiver |
+| `GET` | `/metrics` | Prometheus text-format scrape endpoint |
 
 ---
 
 ## Pluggable Signal Strategies
 
-Drop a subclass of `BaseSignal` into `analyst/signals/custom/` and it will be auto-discovered:
+Drop any subclass of `BaseSignal` into `analyst/signals/custom/` and it is **auto-discovered** at startup — no registration required.
 
 ```python
-# analyst/signals/custom/vwap_breakout.py
+# analyst/signals/custom/my_strategy.py
 from analyst.signals.base import BaseSignal, Signal
 from typing import Dict, Any, Optional
 
-class VWAPBreakout(BaseSignal):
-    name = "vwap_breakout"
-    description = "VWAP cross with volume confirmation"
-    tags = ["vwap", "intraday", "momentum"]
+class MyStrategy(BaseSignal):
+    name = "my_strategy"
+    version = "1.0.0"
+    description = "Custom strategy"
+    tags = ["custom"]
+    requires_history_bars = 20   # minimum OHLCV bars needed
 
-    async def generate(self, symbol: str, market_data: Dict[str, Any]) -> Optional[Signal]:
-        price = market_data.get("price", 0)
-        vwap  = market_data.get("vwap", 0)
-        vol   = market_data.get("volume_ratio", 1.0)
+    async def generate(
+        self,
+        symbol: str,
+        market_data: Dict[str, Any],
+    ) -> Optional[Signal]:
+        price        = market_data["price"]
+        volume_ratio = market_data.get("volume_ratio", 1.0)
+        vwap         = market_data.get("vwap", price)
 
-        if price > vwap * 1.005 and vol > 1.5:
-            return Signal.buy(symbol, confidence=0.8,
-                              reason="Price above VWAP with high volume",
-                              timeframe="5m", price=price)
+        if price > vwap * 1.005 and volume_ratio > 1.5:
+            return Signal(
+                symbol=symbol,
+                action="BUY",
+                confidence=0.82,
+                reason="Price above VWAP with elevated volume",
+                timeframe="15m",
+                price=price,
+            )
         return None
 ```
 
+**Available `market_data` keys:** `price`, `volume`, `volume_ratio`, `volume_zscore`, `orb_high`, `orb_low`, `atr`, `price_change_pct`, `vwap`, `ohlcv` (DataFrame).
+
 ---
 
-## MongoDB Change Streams — Command Bus
+## MongoDB Change Stream Command Bus
 
-Insert a document into the `analyst_commands` collection to send commands without a REST call:
+Insert a document into `analyst_commands` to send a command without a REST call. Requires MongoDB replica set (handled automatically by `mongodb-init` in docker-compose).
 
 ```js
 // Pause the scheduler
-db.analyst_commands.insertOne({ command: "pause", source: "dashboard" })
+db.analyst_commands.insertOne({ command: "pause", source: "ops" })
 
 // Resume
 db.analyst_commands.insertOne({ command: "resume" })
@@ -186,38 +583,108 @@ db.analyst_commands.insertOne({ command: "resume" })
 // Add ticker
 db.analyst_commands.insertOne({ command: "add_ticker", symbol: "TSLA" })
 
-// Manual Pulse override
+// Remove ticker
+db.analyst_commands.insertOne({ command: "remove_ticker", symbol: "TSLA" })
+
+// Tighten all trailing stops globally (e.g. ahead of FOMC)
 db.analyst_commands.insertOne({ command: "override", action: "tighten_trailing_global" })
+
+// Emergency exit all positions
+db.analyst_commands.insertOne({ command: "override", action: "emergency_stop" })
 ```
 
-> **Note:** Requires MongoDB replica set (`--replSet rs0`).  
-> The `mongodb-init` service in `docker-compose.yml` handles this automatically.
+---
+
+## Testing
+
+```bash
+cd backend
+pytest tests/ -v
+
+# Run a specific test file
+pytest tests/test_p1_features.py -v
+
+# Run with coverage
+pytest tests/ --cov=. --cov-report=term-missing
+```
+
+| Test File | What It Covers |
+|---|---|
+| `test_sentinel_edge.py` | ORB locking, ATR calculation, signal scoring, decision guard conditions |
+| `test_p1_features.py` | Volume Z-score, `TIGHTEN_TRAILING_STOP`, plugin auto-discovery |
+| `test_correlation_engine.py` | Cluster detection, cooldown enforcement, Pulse override triggering |
+| `test_decision_feed_and_tickers.py` | Decision ring buffer, ticker CRUD, enriched state |
+
+Test reports are written to `test_reports/` (JSON summaries + JUnit XML for CI ingestion).
 
 ---
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `MONGO_URL` | required | MongoDB connection string |
-| `DB_NAME` | required | MongoDB database name |
-| `PULSE_API_URL` | `http://localhost:8002` | Pulse service URL |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://tempo:4317` | Tempo gRPC endpoint |
-| `OTEL_SERVICE_NAME` | `sentinel-edge` | OTel service name |
-| `ANALYST_START_METRICS_SERVER` | `false` | Expose dedicated `:8002/metrics` |
-| `CORS_ORIGINS` | `*` | Allowed CORS origins |
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `MONGO_URL` | — | ✅ | MongoDB connection string (`mongodb://mongodb:27017`) |
+| `DB_NAME` | — | ✅ | MongoDB database name (`sentinel_edge`) |
+| `PULSE_API_URL` | `http://localhost:8002` | — | Sentinel Pulse base URL |
+| `PULSE_API_KEY` | — | — | Optional API key for Pulse authentication |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://tempo:4317` | — | Tempo gRPC endpoint for distributed traces |
+| `OTEL_SERVICE_NAME` | `sentinel-edge` | — | OpenTelemetry service name |
+| `ANALYST_START_METRICS_SERVER` | `false` | — | Set `true` to expose a dedicated `:8002/metrics` endpoint |
+| `CORS_ORIGINS` | `*` | — | Comma-separated allowed CORS origins |
+| `WEBHOOK_SECRET` | — | — | Shared secret validated on `/api/webhook/alert` requests |
 
 ---
 
-## Quick Start (Docker)
+## Quick Start
 
 ```bash
-git clone https://github.com/your-org/sentinel-edge
+git clone https://github.com/Tetradim/sentinel-edge
 cd sentinel-edge
-docker compose up -d
+git checkout Further
 
-# Services
+# Start the full stack (backend + frontend + LGTM observability)
+docker compose up -d --build
+
+# Tail the bot logs
+docker compose logs -f sentinel-edge
+
+# Access services
 open http://localhost:3001   # Grafana  (admin / sentinel123)
 open http://localhost:9090   # Prometheus
-open http://localhost:3200   # Tempo UI
+open http://localhost:3000   # React frontend
+open http://localhost:3200   # Grafana Tempo (traces)
+open http://localhost:9093   # Alertmanager
+
+# Add a ticker at runtime
+curl -X POST http://localhost:8001/api/tickers/NVDA
+
+# Check live ticker state
+curl http://localhost:8001/api/tickers | jq .
+
+# Get ORB levels for SPY
+curl http://localhost:8001/api/orb/SPY | jq .
+
+# See recent decisions
+curl http://localhost:8001/api/decisions | jq .decisions[:5]
+
+# Pause / resume the scheduler
+curl -X POST http://localhost:8001/api/control/pause
+curl -X POST http://localhost:8001/api/control/resume
 ```
+
+### Running Without Docker
+
+```bash
+cd backend
+pip install -r requirements.txt
+
+export MONGO_URL=mongodb://localhost:27017
+export DB_NAME=sentinel_edge
+export PULSE_API_URL=http://localhost:8002
+
+uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+```
+
+---
+
+*Built with Python 3.12 · FastAPI · MongoDB · Prometheus · Grafana LGTM · OpenTelemetry · React · TypeScript*
