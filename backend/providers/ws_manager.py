@@ -3,7 +3,8 @@
 import asyncio
 import logging
 import os
-from typing import Dict, Callable, Optional
+import time
+from typing import Callable, Optional, Set
 
 import aiohttp
 
@@ -13,20 +14,32 @@ logger = logging.getLogger(__name__)
 class WebSocketManager:
     """Manages WebSocket connections for live price streaming."""
 
+    # Connection retry settings
+    MAX_RETRY_ATTEMPTS = 5
+    INITIAL_BACKOFF = 1.0  # seconds
+    MAX_BACKOFF = 60.0  # seconds
+
     def __init__(
         self,
         price_fetcher,
         on_price_update: Callable[[str, float, float],  # symbol, price, volume
+    ],
+        get_active_symbols: Optional[Callable[[], Set[str]]] = None,
     ):
         self.price_fetcher = price_fetcher
         self.on_price_update = on_price_update
+        self.get_active_symbols = get_active_symbols  # Callback to get tickers
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self._session: Optional[aiohttp.ClientSession] = None
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
         # Track which symbols have active WS subscriptions
-        self.subscribed_symbols: set = set()
+        self.subscribed_symbols: Set[str] = set()
+
+        # Reconnection state
+        self._retry_count = 0
+        self._reconnect_backoff = self.INITIAL_BACKOFF
 
         # Alpaca credentials
         self._api_key = os.getenv("ALPACA_API_KEY", "")
@@ -50,8 +63,30 @@ class WebSocketManager:
 
         self._running = True
         self._session = aiohttp.ClientSession()
-        self._task = asyncio.create_task(self._connect())
+        self._task = asyncio.create_task(self._connect_with_retry())
         logger.info("Alpaca WebSocket started")
+
+    async def _connect_with_retry(self):
+        """Connect with exponential backoff reconnection."""
+        while self._running and self._retry_count < self.MAX_RETRY_ATTEMPTS:
+            try:
+                await self._connect()
+                # If we get here, connection was successful - reset retry count
+                self._retry_count = 0
+                self._reconnect_backoff = self.INITIAL_BACKOFF
+            except Exception as e:
+                if not self._running:
+                    break
+                self._retry_count += 1
+                logger.warning(
+                    f"WebSocket disconnected (attempt {self._retry_count}/{self.MAX_RETRY_ATTEMPTS}): {e}"
+                )
+                await asyncio.sleep(self._reconnect_backoff)
+                # Exponential backoff
+                self._reconnect_backoff = min(
+                    self._reconnect_backoff * 2,
+                    self.MAX_BACKOFF
+                )
 
     async def _connect(self):
         """Connect to Alpaca WebSocket and subscribe to symbols."""
@@ -68,21 +103,40 @@ class WebSocketManager:
                 await self._listen()
         except Exception as e:
             logger.error(f"WebSocket connection error: {e}")
+            raise
         finally:
             self._running = False
+
+    async def add_symbols(self, symbols: Set[str]):
+        """Add new symbols to subscribe to. Resubscribes if already connected."""
+        new_symbols = symbols - self.subscribed_symbols
+        if not new_symbols:
+            return
+
+        self.subscribed_symbols.update(new_symbols)
+
+        # If connected, resubscribe immediately
+        if self._ws and not self._ws.closed:
+            await self._resubscribe(new_symbols)
+        else:
+            logger.debug(f"Added symbols to queue: {new_symbols}")
 
     async def _subscribe(self):
         """Subscribe to trade updates for all active tickers."""
         if not self._ws:
             return
 
-        symbols = self.price_fetcher._cache.keys()
-        if not symbols:
-            # Subscribe to default tickers if none configured
-            symbols = ["SPY", "QQQ"]
+        # Use callback to get symbols if available, otherwise use cached from fetcher
+        if self.get_active_symbols:
+            symbols = self.get_active_symbols()
+        else:
+            # Fallback: get symbols from price fetcher cache
+            symbols = getattr(self.price_fetcher, '_cache', {}) or {}
+            if not symbols:
+                symbols = {"SPY", "QQQ"}  # Default tickers
 
-        for symbol in symbols:
-            self.subscribed_symbols.add(symbol)
+        symbols = set(symbols) if symbols else {"SPY", "QQQ"}
+        self.subscribed_symbols.update(symbols)
 
         msg = {
             "action": "subscribe",
@@ -90,6 +144,25 @@ class WebSocketManager:
         }
         await self._ws.send_json(msg)
         logger.info(f"Subscribed {', '.join(symbols)} via WebSocket")
+
+    async def _resubscribe(self, new_symbols: Set[str]):
+        """Subscribe to additional symbols (called when new tickers added)."""
+        if not self._ws or self._ws.closed:
+            return
+
+        msg = {
+            "action": "subscribe",
+            "trades": list(new_symbols),
+        }
+        await self._ws.send_json(msg)
+        logger.info(f"Resubscribed new symbols: {', '.join(new_symbols)}")
+
+    async def resubscribe(self):
+        """Manually trigger a full resubscription to current symbols."""
+        if self._ws and not self._ws.closed:
+            await self._subscribe()
+        else:
+            logger.warning("Cannot resubscribe - WebSocket not connected")
 
     async def _listen(self):
         """Listen for incoming messages."""

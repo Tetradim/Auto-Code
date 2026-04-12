@@ -98,7 +98,11 @@ class EvaluationScheduler:
         )
 
         # Phase 3: WebSocket integration
-        self.ws_manager = WebSocketManager(self.price_fetcher, self._on_ws_price_update)
+        self.ws_manager = WebSocketManager(
+            self.price_fetcher,
+            self._on_ws_price_update,
+            get_active_symbols=lambda: set(self.active_tickers)
+        )
         self.price_fetcher.set_ws_manager(self.ws_manager)
         logger.info("WebSocketManager wired into scheduler")
 
@@ -493,6 +497,11 @@ class EvaluationScheduler:
     def add_ticker(self, symbol: str):
         if symbol not in self.active_tickers:
             self.active_tickers.append(symbol)
+            # Subscribe to new symbol via WebSocket if connected
+            if hasattr(self, 'ws_manager') and self.ws_manager.subscribed_symbols is not None:
+                asyncio.create_task(
+                    self.ws_manager.add_symbols({symbol})
+                )
             logger.info("➕ Added %s to watch list", symbol)
 
     def remove_ticker(self, symbol: str):
