@@ -84,9 +84,38 @@ class PriceFetcher:
         self._cache: Dict[str, Tuple[pd.DataFrame, float]] = {}
         # Per-symbol locks — created lazily inside async context
         self._locks: Dict[str, asyncio.Lock] = {}
+        # Live price from WebSocket (symbol → (price, volume, timestamp))
+        self._live_prices: Dict[str, Tuple[float, float, float]] = {}
+        # WebSocket manager reference
+        self._ws_manager = None
         logger.info(
             "PriceFetcher initialised (yfinance, cache TTL=%ds)", self.OHLCV_CACHE_TTL
         )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # WebSocket integration
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def set_ws_manager(self, ws_manager):
+        """Set the WebSocket manager for live price updates."""
+        self._ws_manager = ws_manager
+        logger.info("WebSocketManager wired into PriceFetcher")
+
+    def update_live_price(self, symbol: str, price: float, volume: float = 0):
+        """Called by WebSocket when live price arrives."""
+        import time as time_module
+        self._live_prices[symbol] = (price, volume, time_module.time())
+        logger.debug(f"Live price updated: {symbol} = ${price}")
+
+    def get_live_price(self, symbol: str) -> Optional[Tuple[float, float]]:
+        """Get recent live price from WebSocket if available."""
+        if symbol in self._live_prices:
+            price, volume, timestamp = self._live_prices[symbol]
+            # Only use live price if recent (within 5 seconds)
+            import time as time_module
+            if time_module.time() - timestamp < 5:
+                return (price, volume)
+        return None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Core — single network call shared by all public methods
@@ -166,9 +195,14 @@ class PriceFetcher:
         """Return ``(close, volume)`` for the most recent 1m bar.
 
         This is the primary method called by the scheduler every evaluation
-        cycle. It hits the cache on every call except the first in each TTL
-        window, costing a dict lookup instead of an HTTP request.
+        cycle. It attempts to use live WebSocket prices if available,
+        otherwise falls back to cached yfinance data.
         """
+        # First check for live WebSocket price
+        live = self.get_live_price(symbol)
+        if live:
+            return live
+
         df = await self._get_ohlcv_cached(symbol)
         if df is None or df.empty:
             return None

@@ -40,6 +40,7 @@ from metrics import (
 from orb import ORBTracker, ORBLevel
 from position_tracker import PositionTracker
 from price_fetcher import PriceFetcher
+from providers.ws_manager import WebSocketManager
 from pulse_client import PulseClient
 from signals import SignalEngine, TrendDirection
 
@@ -96,23 +97,46 @@ class EvaluationScheduler:
             cooldown_sec=300,
         )
 
+        # Phase 3: WebSocket integration
+        self.ws_manager = WebSocketManager(self.price_fetcher, self._on_ws_price_update)
+        self.price_fetcher.set_ws_manager(self.ws_manager)
+        logger.info("WebSocketManager wired into scheduler")
+
         logger.info("Scheduler initialised with %d tickers", len(self.active_tickers))
 
     # ─────────────────────────────────────────────────────────────────────────
     # Evaluation
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def evaluate_ticker(self, symbol: str):
-        """Full evaluation pipeline for a single ticker (see module docstring)."""
+    async def evaluate_ticker(
+        self,
+        symbol: str,
+        is_ws_update: bool = False,
+        current_price: Optional[float] = None,
+        current_volume: Optional[float] = None,
+    ):
+        """Full evaluation pipeline for a single ticker (see module docstring).
+
+        Args:
+            symbol: Ticker symbol to evaluate
+            is_ws_update: If True, this is a real-time WS update (skip normal price fetch)
+            current_price: Optional pre-fetched price (for WS updates)
+            current_volume: Optional pre-fetched volume (for WS updates)
+        """
         start_time = time.time()
 
         try:
             # ── 1. Price + volume ────────────────────────────────────────────
-            result = await self.prices.get_price_with_volume(symbol)
-            if not result:
-                logger.warning("Could not fetch data for %s", symbol)
-                return
-            price, volume = result
+            # Use pre-fetched price from WS update if available
+            if is_ws_update and current_price is not None:
+                price = current_price
+                volume = current_volume or 0
+            else:
+                result = await self.prices.get_price_with_volume(symbol)
+                if not result:
+                    logger.warning("Could not fetch data for %s", symbol)
+                    return
+                price, volume = result
             now = datetime.now()
 
             # ── 2. ORB update + breakout detection ───────────────────────────
@@ -319,16 +343,42 @@ class EvaluationScheduler:
         finally:
             edge_eval_duration.labels(symbol=symbol).observe(time.time() - start_time)
 
+    async def _on_ws_price_update(self, symbol: str, price: float, volume: float = 0):
+        """Called by WebSocket when live price arrives - trigger immediate evaluation"""
+        logger.info(f"📡 WS Live Update → {symbol} @ ${price:.2f} (vol={volume})")
+
+        # Skip if market is closed
+        if not self.market_hours.is_market_open():
+            logger.debug(f"WS update ignored for {symbol} - market closed")
+            return
+
+        # Trigger fresh evaluation with real data
+        await self.evaluate_ticker(
+            symbol=symbol,
+            is_ws_update=True,
+            current_price=price,
+            current_volume=volume
+        )
+
     async def evaluate_all(self):
         """Evaluate all active tickers concurrently."""
         if self.paused:
             return
         self.market_hours.update_metrics()
         ticker_active_count.set(len(self.active_tickers))
-        await asyncio.gather(
-            *[self.evaluate_ticker(s) for s in self.active_tickers],
-            return_exceptions=True,
-        )
+        
+        # Skip tickers that have active WebSocket subscriptions
+        # (WS will trigger evaluation instead of polling)
+        skipped = getattr(self.ws_manager, 'subscribed_symbols', set())
+        
+        tasks = []
+        for symbol in self.active_tickers:
+            if skipped and symbol in skipped:
+                continue  # WS will trigger evaluation instead
+            tasks.append(self.evaluate_ticker(symbol))
+        
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def run(self):
         """Main evaluation loop — runs until stop() is called."""
@@ -341,6 +391,9 @@ class EvaluationScheduler:
 
         # Start position tracker background task (change stream probe + auto-upgrade)
         self.position_tracker.start()
+
+        # Start WebSocket for live price streaming
+        await self.ws_manager.start()
 
         await self._load_orb_from_db()
 
@@ -431,6 +484,10 @@ class EvaluationScheduler:
     def stop(self):
         self.running = False
         self.position_tracker.stop()
+        # Stop WebSocket connection
+        if hasattr(self, 'ws_manager'):
+            self.ws_manager._running = False
+            logger.info("WebSocket disabled")
         logger.info("⏹️ Stopping scheduler...")
 
     def add_ticker(self, symbol: str):
