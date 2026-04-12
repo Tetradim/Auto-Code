@@ -9,6 +9,7 @@ export function SettingsPage() {
   const [pulseApiKey, setPulseApiKey] = useState('')
   const [orbMinutes, setOrbMinutes] = useState(15)
   const [autoControl, setAutoControl] = useState(true)
+  const [edgeControlSecret, setEdgeControlSecret] = useState('')
   const [saving, setSaving] = useState(false)
   const { refetch: refetchStatus } = usePulseStatus()
 
@@ -18,11 +19,13 @@ export function SettingsPage() {
       const key = await blink.db.table('settings').get('pulse_api_key')
       const orb = await blink.db.table('settings').get('orb_minutes')
       const auto = await blink.db.table('settings').get('auto_control_enabled')
+      const edgeSecret = await blink.db.table('settings').get('edge_control_secret')
       
       if (url) setPulseUrl(url.value)
       if (key) setPulseApiKey(key.value)
       if (orb) setOrbMinutes(Number(orb.value))
       if (auto) setAutoControl(auto.value === '1')
+      if (edgeSecret) setEdgeControlSecret(edgeSecret.value)
     }
     loadSettings()
   }, [])
@@ -34,7 +37,8 @@ export function SettingsPage() {
         { key: 'pulse_api_url', value: pulseUrl },
         { key: 'pulse_api_key', value: pulseApiKey },
         { key: 'orb_minutes', value: String(orbMinutes) },
-        { key: 'auto_control_enabled', value: autoControl ? '1' : '0' }
+        { key: 'auto_control_enabled', value: autoControl ? '1' : '0' },
+        { key: 'edge_control_secret', value: edgeControlSecret }
       ])
       toast.success('Configuration saved successfully')
       await refetchStatus()
@@ -91,6 +95,21 @@ export function SettingsPage() {
                   <Key className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground opacity-20" />
                 </div>
                 <FieldDescription>If your Pulse instance requires authentication.</FieldDescription>
+              </Field>
+
+              <Field>
+                <FieldLabel>Edge Control Secret</FieldLabel>
+                <div className="relative">
+                  <Input
+                    type="password"
+                    value={edgeControlSecret}
+                    onChange={(e) => setEdgeControlSecret(e.target.value)}
+                    placeholder="edge_ctrl_..."
+                    className="bg-background/50 pr-10"
+                  />
+                  <Key className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground opacity-20" />
+                </div>
+                <FieldDescription>Required by backend emergency-stop endpoint (`X-EDGE-SECRET`).</FieldDescription>
               </Field>
             </div>
           </CardContent>

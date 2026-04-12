@@ -1,46 +1,35 @@
-import { Page, PageHeader, PageTitle, PageDescription, PageBody, StatGroup, Stat, Card, CardHeader, CardTitle, CardContent, Button, EmptyState, DataTable, Badge, useBlinkUI } from '@blinkdotnew/ui'
+import { Page, PageHeader, PageTitle, PageDescription, PageBody, StatGroup, Stat, Card, CardHeader, CardTitle, CardContent, Button, Badge, toast } from '@blinkdotnew/ui'
 import { TrendingUp, AlertTriangle, Activity, Zap, Shield, ArrowUpRight, ArrowDownRight, RefreshCcw, Bell } from 'lucide-react'
-import { useORBRanges, useBreakouts, useBotLogs, usePulseStatus } from '../hooks/useSentinelData'
+import { useORBRanges, useBreakouts, usePulseStatus, useBreakoutSeries, triggerEmergencyStop } from '../hooks/useSentinelData'
 import { AreaChart, ResponsiveContainer, YAxis, XAxis, Tooltip, Area, CartesianGrid } from 'recharts'
-import { useBlinkAuth } from '@blinkdotnew/react'
 import { blink } from '../lib/blink'
 import { useState } from 'react'
 
-const data = [
-  { time: '09:30', price: 440.50 },
-  { time: '09:45', price: 442.20 },
-  { time: '10:00', price: 441.80 },
-  { time: '10:15', price: 443.50 },
-  { time: '10:30', price: 445.10 },
-  { time: '10:45', price: 444.80 },
-  { time: '11:00', price: 446.20 },
-]
-
 export function DashboardPage() {
-  const { data: ranges, isLoading: rangesLoading } = useORBRanges()
-  const { data: breakouts, isLoading: breakoutsLoading } = useBreakouts()
+  const { data: ranges } = useORBRanges()
+  const { data: breakouts } = useBreakouts()
+  const { data: chartSeries } = useBreakoutSeries()
   const { data: status, refetch: refetchStatus } = usePulseStatus()
   const [emergencyLoading, setEmergencyLoading] = useState(false)
 
   const handleEmergencyStop = async () => {
-    if (!confirm('Are you sure you want to trigger EMERGENCY STOP for Sentinel Pulse? This will kill all active trades.')) return
-    
+    if (!confirm('Confirm EMERGENCY STOP? This sends a protected backend request to halt Pulse actions.')) return
+
     setEmergencyLoading(true)
     try {
-      // Logic would call Edge Function to update DB/Pulse
-      await blink.db.table('settings').upsert({ key: 'pulse_engine_status', value: 'stopped' })
-      await blink.db.bot_logs.create({ 
-        message: 'EMERGENCY STOP TRIGGERED BY USER',
-        level: 'CRITICAL',
-        userId: (await blink.auth.me())?.id || 'unknown'
-      })
+      const userId = (await blink.auth.me())?.id || 'unknown'
+      const result = await triggerEmergencyStop(userId)
       await refetchStatus()
+      toast.success(result?.message || 'Emergency stop acknowledged by backend')
+    } catch (error: any) {
+      toast.error(error?.message || 'Emergency stop failed')
     } finally {
       setEmergencyLoading(false)
     }
   }
 
-  const breakoutsToday = breakouts?.filter(b => b.date === new Date().toISOString().split('T')[0]) || []
+  const today = new Date().toISOString().split('T')[0]
+  const breakoutsToday = breakouts?.filter(b => b.date === today) || []
 
   return (
     <Page>
@@ -54,68 +43,67 @@ export function DashboardPage() {
             <Button variant="outline" size="sm" onClick={() => refetchStatus()} className="bg-card/50">
               <RefreshCcw className="mr-2 h-4 w-4" /> Sync Status
             </Button>
-            <Button 
-              variant="destructive" 
-              size="sm" 
+            <Button
+              variant="destructive"
+              size="sm"
               onClick={handleEmergencyStop}
-              loading={emergencyLoading}
+              disabled={emergencyLoading}
               className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-900/20"
             >
-              <AlertTriangle className="mr-2 h-4 w-4" /> EMERGENCY STOP
+              <AlertTriangle className="mr-2 h-4 w-4" /> {emergencyLoading ? 'Stopping...' : 'EMERGENCY STOP'}
             </Button>
           </div>
         </div>
       </PageHeader>
       <PageBody className="space-y-6">
         <StatGroup className="grid-cols-2 lg:grid-cols-4">
-          <Stat 
-            label="Pulse Engine" 
-            value={status?.toUpperCase() || 'STOPPED'} 
-            icon={<Zap className={status === 'running' ? "text-green-500 fill-green-500/20" : "text-muted-foreground"} />}
-            trendLabel={status === 'running' ? "Active Evaluation" : "Bot Offline"}
+          <Stat
+            label="Pulse Engine"
+            value={status?.toUpperCase() || 'STOPPED'}
+            icon={<Zap className={status === 'running' ? 'text-green-500 fill-green-500/20' : 'text-muted-foreground'} />}
+            trendLabel={status === 'running' ? 'Active Evaluation' : 'Bot Offline'}
             trend={status === 'running' ? 100 : 0}
           />
-          <Stat 
-            label="Active Tickers" 
-            value={ranges?.length || 0} 
+          <Stat
+            label="Active Tickers"
+            value={ranges?.length || 0}
             icon={<Activity className="text-primary" />}
-            trendLabel="Across 7 Markets"
+            trendLabel="Across configured universe"
           />
-          <Stat 
-            label="Breakouts Today" 
-            value={breakoutsToday.length} 
+          <Stat
+            label="Breakouts Today"
+            value={breakoutsToday.length}
             icon={<TrendingUp className="text-accent" />}
             trendLabel="Total Events"
-            trend={12.5}
           />
-          <Stat 
-            label="Bot Integrity" 
-            value="PASS" 
-            icon={<Shield className="text-green-400" />}
-            trendLabel="No Latency Issues"
+          <Stat
+            label="Bot Integrity"
+            value={status === 'running' ? 'PASS' : 'WARN'}
+            icon={<Shield className={status === 'running' ? 'text-green-400' : 'text-yellow-400'} />}
+            trendLabel={status === 'running' ? 'Healthy control loop' : 'Pulse inactive'}
           />
         </StatGroup>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2 bg-card/50 backdrop-blur-md border-border/50">
             <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 py-4">
-              <CardTitle className="text-sm font-medium tracking-tight">Active Breakdown — SPY 5m ORB</CardTitle>
-              <Badge variant="outline" className="text-[10px] tracking-widest font-bold">LIVE FEED</Badge>
+              <CardTitle className="text-sm font-medium tracking-tight">Live Breakout Price Series</CardTitle>
+              <Badge variant="outline" className="text-[10px] tracking-widest font-bold">BACKEND-FED</Badge>
             </CardHeader>
             <CardContent className="pt-6">
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data}>
+                  <AreaChart data={chartSeries || []}>
                     <defs>
                       <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                     <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
                     <YAxis domain={['auto', 'auto']} stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
-                    <Tooltip 
+                    <Tooltip
                       contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                       labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
                     />
@@ -158,7 +146,7 @@ export function DashboardPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-bold text-foreground">${b.price.toFixed(2)}</p>
+                        <p className="text-sm font-bold text-foreground">${Number(b.price).toFixed(2)}</p>
                         <p className="text-[10px] text-muted-foreground">{new Date(b.createdAt).toLocaleTimeString()}</p>
                       </div>
                     </div>

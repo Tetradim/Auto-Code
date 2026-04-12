@@ -1,0 +1,18 @@
+groups:
+  - name: sentinel_recording_rules
+    interval: 30s
+    rules:
+      - record: analyst_orb_breakout_rate_5m
+        expr: sum by (symbol, timeframe, direction) (rate(analyst_orb_breakouts_total[5m]))
+
+      - record: analyst_override_rate_5m
+        expr: sum by (symbol, action, severity) (rate(analyst_pulse_overrides_total[5m]))
+
+      - record: analyst_correlation_strength_avg_30m
+        expr: avg_over_time(analyst_correlation_clusters_total[30m])
+
+      - record: analyst_false_positive_rate
+        expr: 1 - analyst_orb_win_rate
+
+      - record: analyst_drawdown_protection_effectiveness
+        expr: avg by (symbol, severity) (analyst_drawdown_protection_pct)
