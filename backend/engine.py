@@ -42,7 +42,10 @@ class DecisionEngine:
         pnl_pct: float = 0.0,
         current_drawdown: float = 0.0,
         has_position: bool = False,
-        trailing_enabled: bool = False
+        trailing_enabled: bool = False,
+        max_consecutive_losses: Optional[int] = None,
+        max_drawdown_pct: Optional[float] = None,
+        trailing_stop_profit_threshold: Optional[float] = None,
     ) -> Decision:
         """
         Make trading decision based on current state
@@ -61,6 +64,22 @@ class DecisionEngine:
             Decision enum
         """
         
+        max_losses = (
+            int(max_consecutive_losses)
+            if max_consecutive_losses is not None
+            else self.MAX_CONSECUTIVE_LOSSES
+        )
+        max_drawdown = (
+            float(max_drawdown_pct)
+            if max_drawdown_pct is not None
+            else self.MAX_DRAWDOWN_PCT
+        )
+        trailing_profit_threshold = (
+            float(trailing_stop_profit_threshold)
+            if trailing_stop_profit_threshold is not None
+            else self.TRAILING_STOP_PROFIT_THRESHOLD
+        )
+
         # Initialize tracking
         if symbol not in self.consecutive_losses:
             self.consecutive_losses[symbol] = 0
@@ -79,7 +98,7 @@ class DecisionEngine:
         # ═══════════════════════════════════════════════════════════
         
         # Too many consecutive losses
-        if self.consecutive_losses[symbol] >= self.MAX_CONSECUTIVE_LOSSES:
+        if self.consecutive_losses[symbol] >= max_losses:
             logger.warning(
                 f"⛔ {symbol}: Max consecutive losses reached ({self.consecutive_losses[symbol]})"
             )
@@ -88,7 +107,7 @@ class DecisionEngine:
             return decision
         
         # Excessive drawdown
-        if current_drawdown > self.MAX_DRAWDOWN_PCT:
+        if current_drawdown > max_drawdown:
             logger.warning(
                 f"⛔ {symbol}: Excessive drawdown ({current_drawdown:.2f}%)"
             )
@@ -115,7 +134,7 @@ class DecisionEngine:
                 return decision
 
             # Already in profit - enable trailing stop
-            if pnl_pct > self.TRAILING_STOP_PROFIT_THRESHOLD and not trailing_enabled:
+            if pnl_pct > trailing_profit_threshold and not trailing_enabled:
                 logger.info(
                     f"✅ {symbol}: Profit threshold reached ({pnl_pct:.2f}%), enabling trailing stop"
                 )

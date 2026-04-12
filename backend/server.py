@@ -112,9 +112,17 @@ class MetricToggles(BaseModel):
     breakouts: bool = Field(True,  description="ORB breakout counter")
 
 
+class RiskConfig(BaseModel):
+    """Per-ticker decision-risk thresholds."""
+    max_consecutive_losses: int = Field(3, ge=1, le=20)
+    max_drawdown_pct: float = Field(10.0, ge=0.1, le=100.0)
+    trailing_stop_profit_threshold: float = Field(2.0, ge=0.1, le=50.0)
+
+
 class TickerConfigBody(BaseModel):
     """Request body for PUT /api/tickers/{symbol}/config."""
     metrics: MetricToggles = Field(default_factory=MetricToggles)
+    risk: RiskConfig = Field(default_factory=RiskConfig)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -356,15 +364,23 @@ async def update_ticker_config(symbol: str, body: TickerConfigBody = Body(...)):
     sym = _symbol(symbol)
 
     metrics_dict = body.metrics.model_dump()
+    risk_dict = body.risk.model_dump()
 
     await db.ticker_configs.update_one(
         {"symbol": sym},
-        {"$set": {"symbol": sym, "metrics": metrics_dict, "updated_at": datetime.utcnow()}},
+        {
+            "$set": {
+                "symbol": sym,
+                "metrics": metrics_dict,
+                "risk": risk_dict,
+                "updated_at": datetime.utcnow(),
+            }
+        },
         upsert=True,
     )
-    sched.ticker_configs[sym] = metrics_dict
+    sched.ticker_configs[sym] = {"metrics": metrics_dict, "risk": risk_dict}
 
-    return {"symbol": sym, "metrics": metrics_dict}
+    return {"symbol": sym, "metrics": metrics_dict, "risk": risk_dict}
 
 
 @api_router.get("/tickers/{symbol}/config")
@@ -375,12 +391,18 @@ async def get_ticker_config(symbol: str):
     # Exclude _id — ObjectId is not JSON-serialisable
     doc = await db.ticker_configs.find_one({"symbol": sym}, {"_id": 0})
     if doc:
-        return {"symbol": sym, "metrics": doc.get("metrics", {}), "updated_at": doc.get("updated_at")}
+        return {
+            "symbol": sym,
+            "metrics": doc.get("metrics", MetricToggles().model_dump()),
+            "risk": doc.get("risk", RiskConfig().model_dump()),
+            "updated_at": doc.get("updated_at"),
+        }
 
     # Return defaults rather than 404 — callers can treat missing config as "all on"
     return {
         "symbol": sym,
         "metrics": MetricToggles().model_dump(),
+        "risk": RiskConfig().model_dump(),
         "updated_at": None,
     }
 

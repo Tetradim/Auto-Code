@@ -172,6 +172,8 @@ class EvaluationScheduler:
             pos = self.position_tracker.get(symbol)
 
             # ── 7. Decision — all risk parameters populated ──────────────────
+            ticker_cfg = self.ticker_configs.get(symbol, {})
+            risk_cfg = ticker_cfg.get("risk", {})
             decision = self.decisions.decide(
                 symbol=symbol,
                 trend=trend,
@@ -181,6 +183,9 @@ class EvaluationScheduler:
                 current_drawdown=pos["drawdown_pct"],
                 has_position=pos["has_position"],
                 trailing_enabled=pos["trailing_enabled"],
+                max_consecutive_losses=risk_cfg.get("max_consecutive_losses"),
+                max_drawdown_pct=risk_cfg.get("max_drawdown_pct"),
+                trailing_stop_profit_threshold=risk_cfg.get("trailing_stop_profit_threshold"),
             )
 
             # ── 8. Send decision to Pulse ────────────────────────────────────
