@@ -100,6 +100,15 @@ class TickerConfigBody(BaseModel):
     metrics: MetricToggles = Field(default_factory=MetricToggles)
 
 
+class BacktestRequest(BaseModel):
+    """Request body for POST /api/backtest."""
+    symbol: str
+    start_date: str  # YYYY-MM-DD
+    end_date: str  # YYYY-MM-DD
+    initial_capital: float = 10000.0
+    dry_run: bool = True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Lifespan
 # ─────────────────────────────────────────────────────────────────────────────
@@ -364,6 +373,49 @@ async def get_ticker_config(symbol: str):
 async def get_providers_health(price_fetcher: PriceFetcher = Depends(get_price_fetcher)):
     """Return health status for all price providers."""
     return price_fetcher.get_provider_health()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Backtest
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# Global backtest engine (initialized in lifespan)
+_backtest_engine = None
+
+
+def get_backtest_engine():
+    """Dependency to get backtest engine."""
+    return _backtest_engine
+
+
+@api_router.post("/backtest")
+async def run_backtest(
+    request: BacktestRequest,
+    price_fetcher: PriceFetcher = Depends(get_price_fetcher),
+):
+    """Run historical backtest for a symbol."""
+    # Lazy initialization of backtest engine
+    global _backtest_engine
+    if _backtest_engine is None:
+        from backtest.engine import BacktestEngine
+        from engine import DecisionEngine
+        _backtest_engine = BacktestEngine(price_fetcher, DecisionEngine())
+    
+    result = await _backtest_engine.run_backtest(
+        symbol=request.symbol,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        initial_capital=request.initial_capital
+    )
+    return result
+
+
+@api_router.get("/dry-run/status")
+async def get_dry_run_status():
+    """Get current dry-run mode status."""
+    import os
+    return {"dry_run_enabled": os.getenv("DRY_RUN", "true").lower() == "true"}
 
 
 @api_router.get("/orb/{symbol}")

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Play } from 'lucide-react';
 import { api } from '@/lib/api';
+import BacktestResultsChart from './BacktestResultsChart';
 
 // Default providers - alpaca first for real-time, yfinance as fallback
 const DEFAULT_PROVIDERS = ['alpaca', 'yfinance'];
@@ -11,6 +12,16 @@ interface TickerConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRefresh?: () => void;
+}
+
+interface BacktestResult {
+  equity_curve: { time: string; equity: number }[];
+  trades: any[];
+  final_capital: number;
+  total_return_pct: number;
+  win_rate: number;
+  max_drawdown_pct: number;
+  symbol: string;
 }
 
 export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
@@ -24,6 +35,8 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
   });
   const [saving, setSaving] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
+  const [backtestResults, setBacktestResults] = useState<BacktestResult | null>(null);
+  const [runningBacktest, setRunningBacktest] = useState(false);
 
   // Load existing config when modal opens
   useEffect(() => {
@@ -115,6 +128,24 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
     }
   };
 
+  const runBacktest = async () => {
+    setRunningBacktest(true);
+    try {
+      // Default to last 30 days
+      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split('T')[0];
+
+      const result = await api.runBacktest(symbol, startDate, endDate, 10000);
+      setBacktestResults(result);
+    } catch (error) {
+      console.error('Backtest failed:', error);
+    } finally {
+      setRunningBacktest(false);
+    }
+  };
+
   // Available providers not yet added
   const availableProviders = ALL_PROVIDERS.filter(
     p => !localConfig.price_providers.includes(p)
@@ -197,21 +228,38 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
           )}
         </div>
 
+        {/* Backtest Results */}
+        {backtestResults && (
+          <div className="px-6 pb-4">
+            <BacktestResultsChart results={backtestResults} />
+          </div>
+        )}
+
         {/* Footer */}
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-700">
+        <div className="flex justify-between items-center gap-3 px-6 py-4 border-t border-zinc-700">
           <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+            onClick={runBacktest}
+            disabled={runningBacktest}
+            className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
           >
-            Cancel
+            <Play size={14} />
+            {runningBacktest ? 'Running...' : 'Run Backtest'}
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || initialLoad}
-            className="px-4 py-2 text-sm bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || initialLoad}
+              className="px-4 py-2 text-sm bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

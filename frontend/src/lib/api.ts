@@ -56,6 +56,22 @@ class ApiClient {
     return fetchJSON('/api/markets');
   }
 
+  async runBacktest(symbol: string, startDate: string, endDate: string, initialCapital?: number) {
+    return fetchJSON('/api/backtest', {
+      method: 'POST',
+      body: JSON.stringify({
+        symbol,
+        start_date: startDate,
+        end_date: endDate,
+        initial_capital: initialCapital || 10000,
+      }),
+    });
+  }
+
+  async getDryRunStatus() {
+    return fetchJSON('/api/dry-run/status');
+  }
+
   async pauseScheduler() {
     return fetchJSON('/api/control/pause', { method: 'POST' });
   }
