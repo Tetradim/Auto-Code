@@ -32,8 +32,10 @@ services:
       # Optional: basic-auth for the Alertmanager webhook receiver
       # Must match the password in prometheus/alertmanager.yml
       - WEBHOOK_SECRET=
+      - RETRY_QUEUE_LOG_DIR=/app/logs
     volumes:
       - ./backend:/app
+      - sentinel-edge-logs:/app/logs
     depends_on:
       - mongodb
       - tempo
@@ -249,3 +251,4 @@ volumes:
   alertmanager-data:
   loki-data:
   tempo-data:
+  sentinel-edge-logs:

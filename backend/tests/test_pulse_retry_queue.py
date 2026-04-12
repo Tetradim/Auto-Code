@@ -1,56 +1,65 @@
 import asyncio
 
-import pytest
-
-from backend.pulse_client import CircuitState, PulseClient
+from backend.retry_queue import DecisionQueue
 
 
-@pytest.mark.asyncio
-async def test_emergency_exit_queued_with_higher_priority():
-    client = PulseClient()
-    client.pulse_available = True
-    client.state = CircuitState.OPEN
+def test_emergency_exit_queued_with_higher_priority(tmp_path):
+    async def _run():
+        queue = DecisionQueue(log_dir=tmp_path)
+        await queue.enqueue("AAPL", "buy", "/api/tickers/AAPL/decision", {"decision": "buy"})
+        await queue.enqueue(
+            "MSFT",
+            "emergency_stop",
+            "/api/tickers/MSFT/decision",
+            {"decision": "emergency_stop"},
+        )
 
-    await client.send_decision("AAPL", "buy")
-    await client.send_decision("MSFT", "emergency_stop")
+        first = await queue._queue.get()
+        second = await queue._queue.get()
 
-    first = await client._retry_queue.get()
-    second = await client._retry_queue.get()
+        assert first.decision == "emergency_stop"
+        assert second.decision == "buy"
 
-    assert first.decision == "emergency_stop"
-    assert second.decision == "buy"
-
-    await client.aclose()
+    asyncio.run(_run())
 
 
-@pytest.mark.asyncio
-async def test_stale_retries_are_dropped_during_drain(monkeypatch):
-    client = PulseClient()
-    client.pulse_available = True
-    client.state = CircuitState.OPEN
-    client.DEFAULT_RETRY_TTL_SECONDS = 0.01
+def test_stale_retries_are_dropped_during_drain(tmp_path):
+    async def _run():
+        queue = DecisionQueue(log_dir=tmp_path, default_ttl_seconds=0.01)
+        await queue.enqueue("AAPL", "buy", "/api/tickers/AAPL/decision", {"decision": "buy"})
 
-    await client.send_decision("AAPL", "buy")
-    queued = await client._retry_queue.get()
-    queued.queued_at -= 120
-    await client._retry_queue.put(queued)
+        stale_item = await queue._queue.get()
+        stale_item.queued_at -= 120
+        await queue._queue.put(stale_item)
 
-    replayed = []
+        replayed = []
 
-    async def fake_post(endpoint, payload):
-        replayed.append((endpoint, payload))
-        return True
+        async def fake_send(endpoint, payload):
+            replayed.append((endpoint, payload))
+            return True
 
-    monkeypatch.setattr(client, "_post", fake_post)
-    client.state = CircuitState.CLOSED
-    drain_task = asyncio.create_task(client._drain_queue())
-    client._queue_wakeup.set()
-    await asyncio.sleep(0.05)
-    drain_task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await drain_task
+        queue.start(can_send=lambda: True, send_func=fake_send)
+        queue.notify_circuit_closed()
+        await asyncio.sleep(0.05)
 
-    assert replayed == []
-    assert client._retry_queue.empty()
+        assert replayed == []
+        assert queue._queue.empty()
 
-    await client.aclose()
+        await queue.stop()
+
+    asyncio.run(_run())
+
+
+def test_flush_to_file_writes_shutdown_timestamps(tmp_path):
+    async def _run():
+        queue = DecisionQueue(log_dir=tmp_path)
+        await queue.enqueue("TSLA", "buy", "/api/tickers/TSLA/decision", {"decision": "buy"})
+
+        written = await queue.flush_to_file()
+
+        assert written == 1
+        content = queue.log_path.read_text(encoding="utf-8")
+        assert '"queued_at"' in content
+        assert '"shutdown_at"' in content
+
+    asyncio.run(_run())

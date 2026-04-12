@@ -113,7 +113,12 @@ async def lifespan(app: FastAPI):
 
     pulse_url = os.getenv("PULSE_API_URL", "http://localhost:8002")
 
-    pulse_client   = PulseClient(base_url=pulse_url, api_key=os.getenv("PULSE_API_KEY"))
+    retry_queue_log_dir = os.getenv("RETRY_QUEUE_LOG_DIR", "/app/logs")
+    pulse_client   = PulseClient(
+        base_url=pulse_url,
+        api_key=os.getenv("PULSE_API_KEY"),
+        retry_queue_log_dir=retry_queue_log_dir,
+    )
     price_fetcher  = PriceFetcher()
     orb_tracker    = ORBTracker()
     atr_calculator = ATRCalculator(period=14)
@@ -135,6 +140,7 @@ async def lifespan(app: FastAPI):
             "🔌 Pulse not available — running in standalone mode. "
             "All analysis runs normally. Decisions will be sent once Pulse comes online."
         )
+    pulse_client.start_retry_drain_loop()
 
     # SentinelEdge orchestrator — OTel tracing, WebSocket, MongoDB change stream
     edge = SentinelEdge(db=db, pulse_url=pulse_url)
@@ -233,6 +239,7 @@ async def get_stats():
         "pulse_available":        sched.pulse.pulse_available,
         "pulse_circuit_state":    sched.pulse.state.name,
         "pulse_failures":         sched.pulse.failure_count,
+        "retry_queue":            sched.pulse.queue_stats(),
         "position_tracking_mode": sched.position_tracker.mode_name,
         # Seconds since last successful yfinance fetch per symbol.
         # Values consistently > OHLCV_CACHE_TTL indicate stale data.
@@ -244,6 +251,15 @@ async def get_stats():
 async def get_market_status():
     sched = _require_scheduler()
     return sched.market_hours.get_all_status()
+
+
+@api_router.get("/queue")
+async def get_retry_queue(limit: int = 100):
+    sched = _require_scheduler()
+    return {
+        "stats": sched.pulse.queue_stats(),
+        "items": await sched.pulse.queue_snapshot(limit=limit),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
