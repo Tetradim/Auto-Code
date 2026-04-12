@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { createClient } from 'npm:@blinkdotnew/sdk'
 import { registerAnalyzeRoute } from './routes/analyze'
 import { registerWebhookRoute } from './routes/webhook'
+import { registerEmergencyStopRoute } from './routes/emergencyStop'
 
 const app = new Hono()
 
@@ -29,5 +30,6 @@ async function getSetting(key: string) {
 
 registerAnalyzeRoute(app, { blink, getSetting })
 registerWebhookRoute(app, { blink })
+registerEmergencyStopRoute(app, { blink, getSetting })
 
 export default app

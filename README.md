@@ -82,7 +82,7 @@ Use this repo as a foundation that still needs:
 - Blink project credentials
 - Reachable Sentinel Pulse API (for integration testing)
 
-> `bun run lint` is configured, but Bun is optional unless you use the aggregate lint script.
+> Linting and checks are standardized on npm scripts (`npm run lint`).
 
 ---
 
@@ -94,6 +94,7 @@ Use this repo as a foundation that still needs:
 |---|---:|---|
 | `VITE_BLINK_PROJECT_ID` | Yes | Blink project id used by client/backend initialization |
 | `BLINK_SECRET_KEY` | Yes (backend) | Server credential used by edge API |
+| `VITE_EDGE_API_URL` | Optional | Base URL for backend control endpoints (for example emergency stop) |
 
 ### Runtime settings (Blink `settings` table)
 
@@ -104,6 +105,7 @@ Use this repo as a foundation that still needs:
 | `orb_minutes` | Preferred ORB timeframe in UI/settings | `15` |
 | `auto_control_enabled` | Enables automatic control actions (`1` / `0`) | `1` |
 | `pulse_engine_status` | UI status indicator for pulse engine | `running` |
+| `edge_control_secret` | Secret header value used by `/pulse/emergency-stop` | `edge_ctrl_...` |
 
 ---
 
@@ -143,7 +145,8 @@ Optional lint/check flows:
 npm run lint:types
 npm run lint:js
 npm run lint:css
-bun run lint
+npm run lint
+npm run test
 ```
 
 ---
@@ -206,4 +209,5 @@ Accepts trade event payloads from Pulse and appends readable entries to `bot_log
 - `npm run lint:css` — Stylelint
 - `npm run check:css-vars` — validate CSS variable usage
 - `npm run check:css-classes` — validate CSS class references
-- `npm run lint` — aggregate lint/check script (Bun)
+- `npm run lint` — aggregate lint/check script (npm)
+- `npm run test` — run backend service unit tests (Vitest)

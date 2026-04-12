@@ -33,4 +33,18 @@ export class PulseClient {
 
     return await response.json().catch(() => null)
   }
+  async emergencyStop(payload: Record<string, unknown>) {
+    const response = await fetch(`${this.pulseUrl}/api/emergency-stop`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to trigger Pulse emergency stop')
+    }
+
+    return await response.json().catch(() => ({ success: true }))
+  }
+
 }
