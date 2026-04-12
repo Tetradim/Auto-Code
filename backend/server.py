@@ -3,13 +3,14 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, Body, HTTPException
+from fastapi import FastAPI, APIRouter, Body, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from prometheus_client import REGISTRY, generate_latest
@@ -60,6 +61,9 @@ edge: SentinelEdge = None
 # ─────────────────────────────────────────────────────────────────────────────
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_RATE_LIMIT_MAX_REQUESTS = 120
+_rate_limit_buckets: Dict[str, list[float]] = {}
 
 
 def _symbol(raw: str) -> str:
@@ -85,6 +89,19 @@ def _require_scheduler() -> EvaluationScheduler:
     return scheduler
 
 
+def _enforce_rate_limit(request: Request) -> None:
+    """Simple fixed-window in-memory rate limiter (per client IP)."""
+    client = request.client.host if request.client else "unknown"
+    now = time.time()
+    recent = _rate_limit_buckets.setdefault(client, [])
+    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+    while recent and recent[0] < cutoff:
+        recent.pop(0)
+    if len(recent) >= _RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    recent.append(now)
+
+
 class MetricToggles(BaseModel):
     """Per-ticker Prometheus metric enable/disable flags."""
     orb:       bool = Field(True,  description="ORB high/low/range metrics")
@@ -95,9 +112,17 @@ class MetricToggles(BaseModel):
     breakouts: bool = Field(True,  description="ORB breakout counter")
 
 
+class RiskConfig(BaseModel):
+    """Per-ticker decision-risk thresholds."""
+    max_consecutive_losses: int = Field(3, ge=1, le=20)
+    max_drawdown_pct: float = Field(10.0, ge=0.1, le=100.0)
+    trailing_stop_profit_threshold: float = Field(2.0, ge=0.1, le=50.0)
+
+
 class TickerConfigBody(BaseModel):
     """Request body for PUT /api/tickers/{symbol}/config."""
     metrics: MetricToggles = Field(default_factory=MetricToggles)
+    risk: RiskConfig = Field(default_factory=RiskConfig)
 
 
 class BacktestRequest(BaseModel):
@@ -124,7 +149,12 @@ async def lifespan(app: FastAPI):
 
     pulse_url = os.getenv("PULSE_API_URL", "http://localhost:8002")
 
-    pulse_client   = PulseClient(base_url=pulse_url, api_key=os.getenv("PULSE_API_KEY"))
+    retry_queue_log_dir = os.getenv("RETRY_QUEUE_LOG_DIR", "/app/logs")
+    pulse_client   = PulseClient(
+        base_url=pulse_url,
+        api_key=os.getenv("PULSE_API_KEY"),
+        retry_queue_log_dir=retry_queue_log_dir,
+    )
     price_fetcher  = PriceFetcher()
     orb_tracker    = ORBTracker()
     atr_calculator = ATRCalculator(period=14)
@@ -146,6 +176,7 @@ async def lifespan(app: FastAPI):
             "🔌 Pulse not available — running in standalone mode. "
             "All analysis runs normally. Decisions will be sent once Pulse comes online."
         )
+    pulse_client.start_retry_drain_loop()
 
     # SentinelEdge orchestrator — OTel tracing, WebSocket, MongoDB change stream
     edge = SentinelEdge(db=db, pulse_url=pulse_url)
@@ -234,7 +265,8 @@ async def health():
 
 
 @api_router.get("/stats")
-async def get_stats():
+async def get_stats(request: Request):
+    _enforce_rate_limit(request)
     sched = _require_scheduler()
     return {
         "active_tickers":      sched.active_tickers,
@@ -244,6 +276,7 @@ async def get_stats():
         "pulse_available":        sched.pulse.pulse_available,
         "pulse_circuit_state":    sched.pulse.state.name,
         "pulse_failures":         sched.pulse.failure_count,
+        "retry_queue":            sched.pulse.queue_stats(),
         "position_tracking_mode": sched.position_tracker.mode_name,
         # Seconds since last successful yfinance fetch per symbol.
         # Values consistently > OHLCV_CACHE_TTL indicate stale data.
@@ -255,6 +288,16 @@ async def get_stats():
 async def get_market_status():
     sched = _require_scheduler()
     return sched.market_hours.get_all_status()
+
+
+@api_router.get("/queue")
+async def get_retry_queue(request: Request, limit: int = 100):
+    _enforce_rate_limit(request)
+    sched = _require_scheduler()
+    return {
+        "stats": sched.pulse.queue_stats(),
+        "items": await sched.pulse.queue_snapshot(limit=limit),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -332,15 +375,23 @@ async def update_ticker_config(symbol: str, body: TickerConfigBody = Body(...)):
     sym = _symbol(symbol)
 
     metrics_dict = body.metrics.model_dump()
+    risk_dict = body.risk.model_dump()
 
     await db.ticker_configs.update_one(
         {"symbol": sym},
-        {"$set": {"symbol": sym, "metrics": metrics_dict, "updated_at": datetime.utcnow()}},
+        {
+            "$set": {
+                "symbol": sym,
+                "metrics": metrics_dict,
+                "risk": risk_dict,
+                "updated_at": datetime.utcnow(),
+            }
+        },
         upsert=True,
     )
-    sched.ticker_configs[sym] = metrics_dict
+    sched.ticker_configs[sym] = {"metrics": metrics_dict, "risk": risk_dict}
 
-    return {"symbol": sym, "metrics": metrics_dict}
+    return {"symbol": sym, "metrics": metrics_dict, "risk": risk_dict}
 
 
 @api_router.get("/tickers/{symbol}/config")
@@ -351,12 +402,18 @@ async def get_ticker_config(symbol: str):
     # Exclude _id — ObjectId is not JSON-serialisable
     doc = await db.ticker_configs.find_one({"symbol": sym}, {"_id": 0})
     if doc:
-        return {"symbol": sym, "metrics": doc.get("metrics", {}), "updated_at": doc.get("updated_at")}
+        return {
+            "symbol": sym,
+            "metrics": doc.get("metrics", MetricToggles().model_dump()),
+            "risk": doc.get("risk", RiskConfig().model_dump()),
+            "updated_at": doc.get("updated_at"),
+        }
 
     # Return defaults rather than 404 — callers can treat missing config as "all on"
     return {
         "symbol": sym,
         "metrics": MetricToggles().model_dump(),
+        "risk": RiskConfig().model_dump(),
         "updated_at": None,
     }
 
