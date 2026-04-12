@@ -354,6 +354,18 @@ async def get_ticker_config(symbol: str):
 # ORB levels
 # ═══════════════════════════════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Provider health
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@api_router.get("/providers/health")
+async def get_providers_health(price_fetcher: PriceFetcher = Depends(get_price_fetcher)):
+    """Return health status for all price providers."""
+    return price_fetcher.get_provider_health()
+
+
 @api_router.get("/orb/{symbol}")
 async def get_orb_levels(symbol: str):
     """

@@ -79,6 +79,47 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Drag-to-reorder handlers
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+    if (fromIndex === toIndex || isNaN(fromIndex)) return;
+
+    const newOrder = [...localConfig.price_providers];
+    const [moved] = newOrder.splice(fromIndex, 1);
+    newOrder.splice(toIndex, 0, moved);
+
+    setLocalConfig({ ...localConfig, price_providers: newOrder });
+  };
+
+  const removeProvider = (provider: string) => {
+    const newList = localConfig.price_providers.filter(p => p !== provider);
+    if (newList.length === 0) newList.push('yfinance');
+    setLocalConfig({ ...localConfig, price_providers: newList });
+  };
+
+  const addProvider = (provider: string) => {
+    if (!localConfig.price_providers.includes(provider)) {
+      setLocalConfig({
+        ...localConfig,
+        price_providers: [...localConfig.price_providers, provider],
+      });
+    }
+  };
+
+  // Available providers not yet added
+  const availableProviders = ALL_PROVIDERS.filter(
+    p => !localConfig.price_providers.includes(p)
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
@@ -108,50 +149,49 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
             <div className="text-sm text-zinc-400">Loading...</div>
           ) : (
             <>
-              {/* Price Providers Section */}
+              {/* Price Providers - Drag to Reorder */}
               <div className="space-y-4 border-t border-zinc-700 pt-6">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-white">
-                    Price Data Providers
-                  </label>
-                  <span className="text-xs text-zinc-500">
-                    Higher priority tried first
-                  </span>
-                </div>
+                <label className="text-sm font-medium text-white flex items-center justify-between">
+                  Price Data Providers{' '}
+                  <span className="text-xs text-zinc-500">(drag to reorder priority)</span>
+                </label>
 
-                <div className="flex flex-wrap gap-3">
-                  {ALL_PROVIDERS.map((provider) => (
-                    <label
+                <div className="bg-zinc-900 p-4 rounded-2xl space-y-2">
+                  {localConfig.price_providers.map((provider: string, index: number) => (
+                    <div
                       key={provider}
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl cursor-pointer transition-all border ${
-                        localConfig.price_providers?.includes(provider)
-                          ? 'bg-green-900/30 border-green-600'
-                          : 'bg-zinc-800 border-transparent hover:border-zinc-600'
-                      }`}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, index)}
+                      className="flex items-center gap-3 bg-zinc-800 p-3 rounded-xl cursor-move hover:bg-zinc-700 group"
                     >
-                      <input
-                        type="checkbox"
-                        checked={
-                          localConfig.price_providers?.includes(provider) ??
-                          (provider === 'alpaca' || provider === 'yfinance')
-                        }
-                        onChange={() => toggleProvider(provider)}
-                        className="accent-green-500"
-                      />
-                      <span className="capitalize text-sm text-white">
-                        {provider}
-                      </span>
-                    </label>
+                      <span className="text-zinc-400">≡</span>
+                      <span className="capitalize flex-1">{provider}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeProvider(provider)}
+                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-500"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   ))}
                 </div>
 
-                <p className="text-xs text-zinc-500 mt-1">
-                  Current order:{' '}
-                  <span className="font-mono text-green-400">
-                    {localConfig.price_providers?.join(' → ') ||
-                      'alpaca → yfinance'}
-                  </span>
-                </p>
+                {/* Available providers to add */}
+                <div className="flex flex-wrap gap-2">
+                  {availableProviders.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => addProvider(p)}
+                      className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm capitalize"
+                    >
+                      + {p}
+                    </button>
+                  ))}
+                </div>
               </div>
             </>
           )}

@@ -53,6 +53,7 @@ import pandas as pd
 import yfinance as yf
 
 from metrics import current_price, price_fetch_failures_total, price_fetch_latency
+from providers.health import ProviderHealth
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ class PriceFetcher:
         self._live_prices: Dict[str, Tuple[float, float, float]] = {}
         # WebSocket manager reference
         self._ws_manager = None
+        # Provider health monitoring
+        self.health = ProviderHealth()
         logger.info(
             "PriceFetcher initialised (yfinance, cache TTL=%ds)", self.OHLCV_CACHE_TTL
         )
@@ -116,6 +119,10 @@ class PriceFetcher:
             if time_module.time() - timestamp < 5:
                 return (price, volume)
         return None
+
+    def get_provider_health(self) -> dict:
+        """Get health status for all providers."""
+        return self.health.get_health()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Core — single network call shared by all public methods
@@ -167,10 +174,12 @@ class PriceFetcher:
                     ).inc()
                     logger.warning("No OHLCV data returned for %s", symbol)
                     # Return stale data rather than None
+                    self.health.record_failure("yfinance")
                     return self._cache[symbol][0] if symbol in self._cache else None
 
                 # ── 5. Cache + metrics ────────────────────────────────────────
                 self._cache[symbol] = (df, time.monotonic())
+                self.health.record_success("yfinance")
                 last_close = float(df["Close"].iloc[-1])
                 current_price.labels(symbol=symbol).set(last_close)
                 logger.debug(
@@ -184,6 +193,7 @@ class PriceFetcher:
                 price_fetch_failures_total.labels(
                     symbol=symbol, source="yfinance"
                 ).inc()
+                self.health.record_failure("yfinance")
                 logger.error("yfinance fetch error for %s: %s", symbol, exc)
                 return self._cache[symbol][0] if symbol in self._cache else None
 
