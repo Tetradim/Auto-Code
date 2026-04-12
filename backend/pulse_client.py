@@ -27,8 +27,14 @@ A single persistent AsyncClient is reused across all calls (keep-alive,
 connection pooling). Call await pulse.aclose() during application shutdown.
 """
 import logging
+import asyncio
+import json
+import os
 import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
@@ -45,6 +51,21 @@ logger = logging.getLogger(__name__)
 HEALTH_PROBE_TIMEOUT = 3.0   # seconds — startup health check
 
 
+@dataclass(order=True)
+class QueuedDecision:
+    """Priority-sorted retry payload for Pulse decision calls."""
+
+    priority: int
+    sequence: int
+    symbol: str = field(compare=False)
+    decision: str = field(compare=False)
+    payload: Dict[str, Any] = field(compare=False)
+    endpoint: str = field(compare=False)
+    queued_at: float = field(compare=False)
+    queued_at_iso: str = field(compare=False)
+    ttl_seconds: float = field(compare=False)
+
+
 class CircuitState(Enum):
     CLOSED    = 0   # normal operation
     HALF_OPEN = 1   # testing if Pulse recovered
@@ -59,6 +80,8 @@ class PulseClient:
     SUCCESS_THRESHOLD     = 2
     TIMEOUT_SECONDS       = 5.0
     CIRCUIT_OPEN_DURATION = 60  # seconds before HALF_OPEN probe
+    DEFAULT_RETRY_TTL_SECONDS = 60.0
+    EMERGENCY_EXIT_RETRY_TTL_SECONDS = 300.0
 
     def __init__(
         self,
@@ -83,6 +106,16 @@ class PulseClient:
         self._client = httpx.AsyncClient(
             timeout=self.TIMEOUT_SECONDS,
             headers=self._build_headers(),
+        )
+        self._retry_queue: asyncio.PriorityQueue[QueuedDecision] = asyncio.PriorityQueue()
+        self._retry_sequence = 0
+        self._queue_wakeup = asyncio.Event()
+        self._queue_task: Optional[asyncio.Task] = None
+        self._retry_queue_log_path = Path(
+            os.getenv(
+                "PULSE_RETRY_QUEUE_LOG",
+                "backend/logs/pulse_retry_queue_shutdown.jsonl",
+            )
         )
 
         broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
@@ -131,6 +164,15 @@ class PulseClient:
             h["X-API-KEY"] = self.api_key
         return h
 
+    def _ensure_queue_task(self) -> None:
+        if self._queue_task and not self._queue_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._queue_task = loop.create_task(self._drain_queue())
+
     def _should_allow_request(self) -> bool:
         """Gate: not available → False; circuit open → False; else True."""
         if not self.pulse_available:
@@ -161,6 +203,7 @@ class PulseClient:
                 self.state         = CircuitState.CLOSED
                 self.success_count = 0
                 broker_circuit_state.labels(broker_id=self.broker_id).set(self.state.value)
+                self._queue_wakeup.set()
 
     def _record_failure(self) -> None:
         self.failure_count    += 1
@@ -176,6 +219,7 @@ class PulseClient:
         )
 
     async def _post(self, endpoint: str, payload: Dict[str, Any]) -> bool:
+        self._ensure_queue_task()
         if not self._should_allow_request():
             if self.pulse_available:
                 logger.debug("Circuit %s — POST %s suppressed", self.state.name, endpoint)
@@ -206,6 +250,103 @@ class PulseClient:
             self._record_failure()
             logger.error("Pulse %s error: %s", endpoint, exc)
             return False
+
+    def _decision_ttl_seconds(self, decision: str) -> float:
+        if decision.lower() in {"emergency_exit", "emergency_stop"}:
+            return self.EMERGENCY_EXIT_RETRY_TTL_SECONDS
+        return self.DEFAULT_RETRY_TTL_SECONDS
+
+    async def _enqueue_decision(
+        self,
+        symbol: str,
+        decision: str,
+        endpoint: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        now = time.time()
+        queued = QueuedDecision(
+            priority=0 if decision.lower() in {"emergency_exit", "emergency_stop"} else 1,
+            sequence=self._retry_sequence,
+            symbol=symbol,
+            decision=decision,
+            payload=dict(payload),
+            endpoint=endpoint,
+            queued_at=now,
+            queued_at_iso=datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+            ttl_seconds=self._decision_ttl_seconds(decision),
+        )
+        self._retry_sequence += 1
+        await self._retry_queue.put(queued)
+        logger.warning(
+            "Queued unsent decision for retry: %s %s (priority=%d, ttl=%.0fs, queue_size=%d)",
+            symbol,
+            decision,
+            queued.priority,
+            queued.ttl_seconds,
+            self._retry_queue.qsize(),
+        )
+
+    async def _drain_queue(self) -> None:
+        while True:
+            await self._queue_wakeup.wait()
+            self._queue_wakeup.clear()
+
+            while self.state == CircuitState.CLOSED and not self._retry_queue.empty():
+                queued = await self._retry_queue.get()
+                age_s = time.time() - queued.queued_at
+                if age_s > queued.ttl_seconds:
+                    logger.info(
+                        "Dropped stale queued decision: %s %s age=%.1fs ttl=%.1fs",
+                        queued.symbol,
+                        queued.decision,
+                        age_s,
+                        queued.ttl_seconds,
+                    )
+                    continue
+
+                sent = await self._post(queued.endpoint, queued.payload)
+                if sent:
+                    logger.info(
+                        "Replayed queued decision: %s %s (queued_at=%s)",
+                        queued.symbol,
+                        queued.decision,
+                        queued.queued_at_iso,
+                    )
+                    continue
+
+                await self._retry_queue.put(queued)
+                break
+
+    async def _persist_retry_queue_on_shutdown(self) -> None:
+        if self._retry_queue.empty():
+            return
+        shutdown_at = datetime.now(timezone.utc).isoformat()
+        self._retry_queue_log_path.parent.mkdir(parents=True, exist_ok=True)
+        pending: list[QueuedDecision] = []
+        while not self._retry_queue.empty():
+            pending.append(await self._retry_queue.get())
+
+        with self._retry_queue_log_path.open("a", encoding="utf-8") as handle:
+            for item in pending:
+                handle.write(
+                    json.dumps(
+                        {
+                            "symbol": item.symbol,
+                            "decision": item.decision,
+                            "endpoint": item.endpoint,
+                            "payload": item.payload,
+                            "priority": item.priority,
+                            "queued_at": item.queued_at_iso,
+                            "shutdown_at": shutdown_at,
+                        }
+                    )
+                    + "\n"
+                )
+        logger.warning(
+            "Persisted %d queued decisions to %s for manual follow-up",
+            len(pending),
+            self._retry_queue_log_path,
+        )
 
     async def _get(self, endpoint: str) -> Optional[Dict[str, Any]]:
         if not self._should_allow_request():
@@ -265,10 +406,11 @@ class PulseClient:
     # ─────────────────────────────────────────────────────────────────────────
 
     async def send_decision(self, symbol: str, decision: str, **kwargs) -> bool:
-        sent = await self._post(
-            f"/api/tickers/{symbol}/decision",
-            {"symbol": symbol, "decision": decision, **kwargs},
-        )
+        endpoint = f"/api/tickers/{symbol}/decision"
+        payload = {"symbol": symbol, "decision": decision, **kwargs}
+        sent = await self._post(endpoint, payload)
+        if (not sent) and self.pulse_available and self.state == CircuitState.OPEN:
+            await self._enqueue_decision(symbol, decision, endpoint, payload)
         if not sent and not self.pulse_available:
             logger.info("STANDALONE: would have sent %s → %s", decision, symbol)
         return sent
@@ -294,4 +436,11 @@ class PulseClient:
 
     async def aclose(self) -> None:
         """Release the connection pool. Call during app shutdown."""
+        await self._persist_retry_queue_on_shutdown()
+        if self._queue_task and not self._queue_task.done():
+            self._queue_task.cancel()
+            try:
+                await self._queue_task
+            except asyncio.CancelledError:
+                pass
         await self._client.aclose()
