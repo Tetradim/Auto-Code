@@ -205,12 +205,16 @@ async def health():
 async def get_stats():
     sched = _require_scheduler()
     return {
-        "active_tickers":    sched.active_tickers,
-        "running":           sched.running,
-        "paused":            sched.paused,
-        "orb_levels_count":  len(sched.orb.get_all_levels()),
+        "active_tickers":      sched.active_tickers,
+        "running":             sched.running,
+        "paused":              sched.paused,
+        "orb_levels_count":    len(sched.orb.get_all_levels()),
         "pulse_circuit_state": sched.pulse.state.name,
-        "pulse_failures":    sched.pulse.failure_count,
+        "pulse_failures":      sched.pulse.failure_count,
+        # Seconds since last successful yfinance fetch per symbol.
+        # Values near OHLCV_CACHE_TTL are expected; values >> TTL indicate
+        # a symbol that is failing to fetch and running on stale data.
+        "price_cache_age_s":   sched.prices.cache_ages(),
     }
 
 
