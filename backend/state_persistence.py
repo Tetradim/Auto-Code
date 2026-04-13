@@ -9,9 +9,11 @@ On startup, reconciles with exchange via fetch_positions() and fetch_orders().
 Emits sentinel_state_restored metric.
 """
 import asyncio
+import hashlib
 import json
 import logging
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -458,3 +460,184 @@ def emit_state_restored_metric(metrics_client, report: Dict[str, Any]) -> None:
     
     if report["discrepancies"]:
         metrics_client.emit("sentinel_reconciliation_issues", len(report["discrepancies"]))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Idempotency - prevent duplicate orders
+# ─────────────────────────────────────────────────────────────────────────
+
+def generate_idempotency_key(signal_id: str, symbol: str, side: str) -> str:
+    """Generate unique idempotency key for order.
+    
+    Format: se-{signal_id}-{symbol}-{timestamp}
+    Example: se-signal-1234-BTCUSDT-LONG-1704067200
+    
+    This prevents duplicate execution when:
+    1. Signal sent, network timeout → retry with SAME key
+    2. Exchange receives duplicate → rejects (already used)
+    3. Bot checks DB → finds key used → skips retry
+    """
+    timestamp = int(time.time())
+    return f"se-{signal_id}-{symbol}-{side}-{timestamp}"
+
+
+def generate_client_order_id(signal_id: str) -> str:
+    """Generate CCXT clientOrderId for Binance.
+    
+    Using just signal_id + timestamp ensures uniqueness
+    while being human-readable for order lookup.
+    """
+    return f"se-{signal_id}-{int(time.time())}"
+
+
+class IdempotencyManager:
+    """Manages idempotency keys to prevent duplicate orders.
+    
+    Usage:
+        im = IdempotencyManager(db_path)
+        await im.init()
+        
+        # Before sending order:
+        key = im.can_send_order(signal_id, symbol, side)
+        if not key:
+            logger.warning(f"Order recent, checking status: {signal_id}")
+            return  # Recently sent, check status instead
+            
+        # After sending (success):
+        im.mark_order_sent(key, symbol, side)
+        
+        # After confirmation:
+        im.mark_order_confirmed(key)
+    """
+
+    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
+        self.db_path = db_path
+        self.conn: Optional[sqlite3.Connection] = None
+        
+    async def init(self) -> None:
+        """Initialize idempotency table."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                key TEXT PRIMARY KEY,
+                signal_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                confirmed_at TEXT,
+                retry_count INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.conn.commit()
+        
+        # Clean old entries (>24 hours)
+        self.conn.execute("""
+            DELETE FROM idempotency_keys 
+            WHERE created_at < datetime('now', '-24 hours') 
+            AND status IN ('confirmed', 'failed')
+        """)
+        self.conn.commit()
+        
+        logger.info("IdempotencyManager initialized")
+
+    def can_send_order(self, signal_id: str, symbol: str, side: str, max_retries: int = 3) -> Optional[str]:
+        """Check if we can send an order, return key or None.
+        
+        Returns:
+            - New key if OK to send
+            - None if recently sent (check status instead)
+        """
+        if self.conn is None:
+            return generate_client_order_id(signal_id)
+            
+        # Check for recent pending order
+        row = self.conn.execute("""
+            SELECT * FROM idempotency_keys
+            WHERE symbol = ? AND side = ? AND status = 'pending'
+            AND created_at > datetime('now', '-30 seconds')
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (symbol, side)).fetchone()
+        
+        if row:
+            # Recent order exists - don't resend
+            logger.info(f"Recent pending order found: {row['key']}, checking status")
+            return None
+            
+        # Check retry count
+        existing = self.conn.execute("""
+            SELECT retry_count FROM idempotency_keys
+            WHERE signal_id = ? AND symbol = ? AND side = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (signal_id, symbol, side)).fetchone()
+        
+        if existing and existing["retry_count"] >= max_retries:
+            logger.warning(f"Max retries exceeded for {signal_id}")
+            return None
+            
+        # Generate new key
+        return generate_client_order_id(signal_id)
+
+    def mark_order_sent(self, key: str, signal_id: str, symbol: str, side: str) -> None:
+        """Mark order as sent (pending)."""
+        if self.conn is None:
+            return
+            
+        self.conn.execute("""
+            INSERT INTO idempotency_keys (key, signal_id, symbol, side, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'pending', datetime('now'), datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                status = 'pending',
+                retry_count = retry_count + 1,
+                updated_at = datetime('now')
+        """, (key, signal_id, symbol, side))
+        self.conn.commit()
+        logger.debug(f"Marked order sent: {key}")
+
+    def mark_order_confirmed(self, key: str) -> None:
+        """Mark order as confirmed (filled)."""
+        if self.conn is None:
+            return
+            
+        self.conn.execute("""
+            UPDATE idempotency_keys
+            SET status = 'confirmed', confirmed_at = datetime('now'), updated_at = datetime('now')
+            WHERE key = ?
+        """, (key,))
+        self.conn.commit()
+        logger.debug(f"Marked order confirmed: {key}")
+
+    def mark_order_failed(self, key: str, failure_reason: str = "") -> None:
+        """Mark order as permanently failed."""
+        if self.conn is None:
+            return
+            
+        self.conn.execute("""
+            UPDATE idempotency_keys
+            SET status = 'failed', confirmed_at = datetime('now'), updated_at = datetime('now')
+            WHERE key = ?
+        """, (key,))
+        self.conn.commit()
+        logger.warning(f"Marked order failed: {key} - {failure_reason}")
+
+    def get_order_status(self, key: str) -> Optional[str]:
+        """Get current order status."""
+        if self.conn is None:
+            return None
+            
+        row = self.conn.execute("""
+            SELECT status FROM idempotency_keys WHERE key = ?
+        """, (key,)).fetchone()
+        
+        return row["status"] if row else None
+
+    def close(self) -> None:
+        """Close connection."""
+        if self.conn:
+            self.conn.close()
+            self.conn = None
