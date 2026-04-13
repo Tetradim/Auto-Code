@@ -153,6 +153,30 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
     }
   };
 
+  const runOptimization = async () => {
+    setRunningBacktest(true);
+    try {
+      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split('T')[0];
+      
+      // Sample parameter grid for optimization
+      const paramGrid = {
+        slippage_pct: [0.03, 0.05, 0.1],
+        commission_pct: [0.05, 0.1, 0.15],
+        num_simulations: [500, 1000],
+      };
+
+      const result = await api.optimizeStrategy(symbol, startDate, endDate, paramGrid, 10000);
+      setBacktestResults(result.best_results);
+    } catch (error) {
+      console.error('Optimization failed:', error);
+    } finally {
+      setRunningBacktest(false);
+    }
+  };
+
   // Available providers not yet added
   const availableProviders = ALL_PROVIDERS.filter(
     p => !localConfig.price_providers.includes(p)
@@ -244,14 +268,24 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
 
         {/* Footer */}
         <div className="flex justify-between items-center gap-3 px-6 py-4 border-t border-zinc-700">
-          <button
-            onClick={runBacktest}
-            disabled={runningBacktest}
-            className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-          >
-            <Play size={14} />
-            {runningBacktest ? 'Running...' : 'Run Backtest'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={runBacktest}
+              disabled={runningBacktest}
+              className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              <Play size={14} />
+              {runningBacktest ? 'Running...' : 'Run Backtest'}
+            </button>
+            <button
+              onClick={runOptimization}
+              disabled={runningBacktest}
+              className="px-4 py-2 text-sm bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors disabled:opacity-50"
+              title="Grid Search Auto-Optimization"
+            >
+              {runningBacktest ? 'Optimizing...' : 'Optimize'}
+            </button>
+          </div>
           <div className="flex gap-3">
             <button
               onClick={onClose}

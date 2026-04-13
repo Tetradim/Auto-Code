@@ -7,7 +7,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, Body, HTTPException, Request
@@ -481,6 +481,61 @@ async def get_dry_run_status():
     """Get current dry-run mode status."""
     import os
     return {"dry_run_enabled": os.getenv("DRY_RUN", "true").lower() == "true"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Strategy Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class OptimizeRequest(BaseModel):
+    """Request body for POST /api/backtest/optimize."""
+    symbol: str
+    start_date: str
+    end_date: str
+    param_grid: Dict[str, List[float]]
+    initial_capital: float = 10000.0
+
+
+_optimizer = None
+
+
+def get_strategy_optimizer():
+    """Dependency to get strategy optimizer."""
+    return _optimizer
+
+
+@api_router.post("/backtest/optimize")
+async def optimize_strategy(
+    request: OptimizeRequest,
+    price_fetcher: PriceFetcher = Depends(get_price_fetcher),
+):
+    """Run grid search optimization over parameter combinations."""
+    global _optimizer
+    if _optimizer is None:
+        from strategies.optimizer import StrategyOptimizer
+        from engine import DecisionEngine
+        _optimizer = StrategyOptimizer(
+            BacktestEngine(price_fetcher, DecisionEngine())
+        )
+    
+    result = await _optimizer.optimize(
+        symbol=request.symbol,
+        param_grid=request.param_grid,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        initial_capital=request.initial_capital,
+    )
+    return result
+
+
+@api_router.post("/emergency/kill-switch")
+async def toggle_kill_switch(state: bool):
+    """Toggle the global kill switch to instantly halt all trading."""
+    import os
+    os.environ["GLOBAL_KILL_SWITCH"] = str(state).lower()
+    logger.warning(f"🚨 Kill switch set to {state}")
+    return {"status": f"kill switch set to {state}", "kill_switch_active": state}
 
 
 @api_router.get("/orb/{symbol}")

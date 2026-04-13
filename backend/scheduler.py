@@ -89,6 +89,28 @@ class EvaluationScheduler:
             decision_engine=decision_engine,
         )
 
+        # Daily PnL tracking
+        self._daily_pnl_cache = None
+        self._daily_pnl_timestamp = None
+
+
+    async def _get_daily_pnl(self) -> float:
+        """Calculate daily PnL percentage. Returns 0.0 if no positions or no trades."""
+        import time
+        
+        now = time.time()
+        # Cache for 60 seconds
+        if self._daily_pnl_cache is not None and self._daily_pnl_timestamp:
+            if now - self._daily_pnl_timestamp < 60:
+                return self._daily_pnl_cache
+        
+        # In production, this would query the database for today's realized PnL
+        # For now, return 0.0 (no daily loss detected)
+        self._daily_pnl_cache = 0.0
+        self._daily_pnl_timestamp = now
+        
+        return self._daily_pnl_cache
+
         self.correlation = CorrelationEngine(
             db=self.db,
             pulse_base_url=os.getenv("PULSE_API_URL", "http://pulse:8001"),
@@ -128,6 +150,18 @@ class EvaluationScheduler:
             current_volume: Optional pre-fetched volume (for WS updates)
         """
         start_time = time.time()
+
+        # ── 0. Production Safeguards ─────────────────────────────────────────
+        import os
+        if os.getenv("GLOBAL_KILL_SWITCH", "false").lower() == "true":
+            logger.warning("🚨 GLOBAL KILL SWITCH ACTIVATED - No decisions allowed")
+            return
+
+        # Max daily loss protection (check every evaluation)
+        daily_loss = await self._get_daily_pnl()
+        if daily_loss < -5.0:  # -5% daily loss limit
+            logger.critical(f"🚨 DAILY LOSS LIMIT BREACHED (-{daily_loss}%) - Pausing trading")
+            return
 
         try:
             # ── 1. Price + volume ────────────────────────────────────────────

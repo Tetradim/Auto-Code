@@ -68,6 +68,19 @@ class ApiClient {
     });
   }
 
+  async optimizeStrategy(symbol: string, startDate: string, endDate: string, paramGrid: any, initialCapital?: number) {
+    return fetchJSON('/api/backtest/optimize', {
+      method: 'POST',
+      body: JSON.stringify({
+        symbol,
+        start_date: startDate,
+        end_date: endDate,
+        param_grid: paramGrid,
+        initial_capital: initialCapital || 10000,
+      }),
+    });
+  }
+
   async getDryRunStatus() {
     return fetchJSON('/api/dry-run/status');
   }
