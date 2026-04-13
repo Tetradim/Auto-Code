@@ -1,0 +1,72 @@
+{
+  "title": "2. Sentinel - The Brain",
+  "uid": "sentinel-the-brain",
+  "tags": ["sentinel-edge", "advanced"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "templating": { "list": [{ "name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus" }] },
+  "panels": [
+    {
+      "type": "row", "title": "HOW THE BOT THINKS — Signal Breakdown", "gridPos": {"x":0,"y":0,"w":24,"h":1}
+    },
+    {
+      "id": 1, "type": "gauge", "title": "Edge Score (Live)",
+      "gridPos": {"x":0,"y":1,"w":6,"h":6},
+      "description": "This is the single most important number. It combines every factor below into one confidence score (0-100). >70 = the bot has a statistical edge worth acting on. The Brain only trades when this gauge is green.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_edge_score*100","instant":true}],
+      "fieldConfig":{"defaults":{"min":0,"max":100,"thresholds":{"steps":[{"color":"red"},{"color":"yellow","value":30},{"color":"green","value":70}]}}}}
+    },
+    {
+      "id": 2, "type": "table", "title": "Signal Recipe (Why Edge is High/Low)",
+      "gridPos": {"x":6,"y":1,"w":18,"h":6},
+      "description": "This table shows the exact ingredients that created the current Edge Score. Example row: Trend=StrongUp (weight 35%), VolumeSpike=Yes (weight 25%), RSI=Neutral (weight 15%). New traders: the bot is NOT guessing — it is adding up weighted evidence like a detective.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_signal_components","format":"table","instant":true}],
+      "transformations":[{"id":"organize","options":{"includeByName":{"factor":true,"value":true,"weight":true,"contribution":true}}}]
+    },
+    {
+      "type": "row", "title": "INDIVIDUAL SENSES", "gridPos": {"x":0,"y":7,"w":24,"h":1}
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Trend Compass History",
+      "gridPos": {"x":0,"y":8,"w":8,"h":7},
+      "description": "Shows how strongly the market has been trending over the last 6h. Green area = uptrend the bot likes for LONGs. Red = downtrend it likes for SHORTs. Flat line = choppy market where the bot stays in cash.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_trend_score","refId":"A"}],
+      "fieldConfig":{"defaults":{"thresholds":{"steps":[{"color":"red","value":-50},{"color":"orange","value":-20},{"color":"green","value":20}]}}}}
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Volatility (ATR) — Market Weather History",
+      "gridPos": {"x":8,"y":8,"w":8,"h":7},
+      "description": "How wild the price swings are. High spikes = Storm. The Brain automatically reduces position size or stops trading when this line shoots up. Beginners lose money in storms — the bot protects you here.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_volatility_atr","refId":"A"}]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Order Book Imbalance",
+      "gridPos": {"x":16,"y":8,"w":8,"h":3},
+      "description": "Are buyers or sellers heavier right now on the order book? +70 = strong buying pressure (favors LONG). This is one of the 'micro' signals the bot uses to confirm macro trend.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_orderbook_imbalance","instant":true}]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Funding Rate Pressure",
+      "gridPos": {"x":16,"y":11,"w":8,"h":4},
+      "description": "On perpetual futures: positive = longs are paying shorts (crowded long side). The Brain avoids piling into crowded trades. Think of this as 'how expensive is it to stay in this position?'",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_funding_rate"}]
+    },
+    {
+      "type": "row", "title": "LAST TRADE STORY", "gridPos": {"x":0,"y":15,"w":24,"h":1}
+    },
+    {
+      "id": 7, "type": "text", "title": "Last Trade Narrative",
+      "gridPos": {"x":0,"y":16,"w":24,"h":4},
+      "options":{"mode":"markdown"},
+      "content": "The last time the bot entered, its reasoning was:\n\n**{{ sentinel_last_trade_reason }}**\n\nEdge at entry: {{ sentinel_last_trade_edge }}\nRisk taken: {{ sentinel_last_trade_risk_pct }}%\nResult: {{ sentinel_last_trade_pnl }} USD\n\nRead this every time you see a new trade appear. This is how you learn the bot's logic."
+    }
+  ]
+}

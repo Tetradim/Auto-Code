@@ -1,0 +1,72 @@
+{
+  "title": "3. Sentinel - Performance Lab",
+  "uid": "sentinel-performance-lab",
+  "tags": ["sentinel-edge", "advanced"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "templating": { "list": [{ "name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus" }] },
+  "panels": [
+    {
+      "type": "row", "title": "EQUITY CURVE — Is the bot actually making money?", "gridPos": {"x":0,"y":0,"w":24,"h":1}
+    },
+    {
+      "id": 1, "type": "timeseries", "title": "Cumulative PnL (USD)",
+      "gridPos": {"x":0,"y":1,"w":16,"h":8},
+      "description": "This is your equity curve. Smooth upward line = healthy. Big drops = drawdowns. A good bot makes money slowly with occasional small dips. If this line is flat for weeks, the market is bad — not the bot.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_cumulative_pnl_usd","refId":"A"}],
+      "fieldConfig":{"defaults":{"unit":"currencyUSD","thresholds":{"steps":[{"color":"red"},{"color":"green","value":0}]}}}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Max Drawdown",
+      "gridPos": {"x":16,"y":1,"w":4,"h":4},
+      "description": "Biggest peak-to-trough drop. <10% is excellent for a live bot. 15-20% is normal in strong trends. >25% means you should lower risk in config.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_max_drawdown_pct*100"}],
+      "fieldConfig":{"defaults":{"unit":"percent","thresholds":{"steps":[{"color":"green"},{"color":"orange","value":10},{"color":"red","value":20}]}}}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "Sharpe Ratio",
+      "gridPos": {"x":20,"y":1,"w":4,"h":4},
+      "description": "Risk-adjusted return. >1.0 is good. >1.5 is very good for crypto. This tells you if profits are coming from skill or just taking huge risks.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_sharpe_ratio"}]
+    },
+    {
+      "type": "row", "title": "TRADE STATISTICS", "gridPos": {"x":0,"y":9,"w":24,"h":1}
+    },
+    {
+      "id": 4, "type": "stat", "title": "Win Rate",
+      "gridPos": {"x":0,"y":10,"w":6,"h":4},
+      "description": "Percentage of trades that closed in profit. In Sentinel Edge 52-58% is normal and still very profitable because winners are larger than losers (see Profit Factor below).",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_win_rate_30*100"}],
+      "fieldConfig":{"defaults":{"unit":"percent","thresholds":{"steps":[{"color":"red","value":0},{"color":"yellow","value":50},{"color":"green","value":55}]}}}}
+    },
+    {
+      "id": 5, "type": "stat", "title": "Profit Factor",
+      "gridPos": {"x":6,"y":10,"w":6,"h":4},
+      "description": "Total profit divided by total loss. >1.5 is good. 2.0+ is excellent. This is more important than win rate.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_profit_factor"}]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Expectancy per Trade",
+      "gridPos": {"x":12,"y":10,"w":6,"h":4},
+      "description": "Average profit per trade after costs. Even $5–$15 per trade compounds fast at high frequency. Positive expectancy = the bot has a real edge.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_expectancy_usd"}],
+      "fieldConfig":{"defaults":{"unit":"currencyUSD"}}
+    },
+    {
+      "id": 7, "type": "table", "title": "Recent Trades with Reasons",
+      "gridPos": {"x":0,"y":14,"w":24,"h":8},
+      "description": "Every closed trade. Click any row to see the exact Edge Score, Market Weather, and reasoning at the time. Use this to learn patterns. Example: trades with Edge>80 almost always win.",
+      "datasource": {"uid":"${DS_PROMETHEUS}"},
+      "targets":[{"expr":"sentinel_trade_history","format":"table"}],
+      "transformations":[{"id":"organize","options":{"includeByName":{"time":true,"side":true,"entry_price":true,"exit_price":true,"pnl_usd":true,"edge_at_entry":true,"reason":true}}}]
+    }
+  ]
+}
