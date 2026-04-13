@@ -93,6 +93,14 @@ class ApiClient {
     return fetchJSON('/api/control/resume', { method: 'POST' });
   }
 
+  async toggleKillSwitch(state: boolean) {
+    return fetchJSON(`/api/emergency/kill-switch?state=${state}`, { method: 'POST' });
+  }
+
+  async getKillSwitchStatus() {
+    return fetchJSON('/api/emergency/kill-switch');
+  }
+
   async getCorrelation() {
     return fetchJSON('/api/correlation');
   }

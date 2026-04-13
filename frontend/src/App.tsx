@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical } from 'lucide-react';
+import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical, BookOpen, AlertTriangle } from 'lucide-react';
 import { TradingOverview } from './components/dashboards/TradingOverview';
 import { BrokerHealth } from './components/dashboards/BrokerHealth';
 import { PnLTracking } from './components/dashboards/PnLTracking';
 import { MarketCoverage } from './components/dashboards/MarketCoverage';
+import { TutorialsDashboard } from './components/tutorials';
 import { useStore } from './store/useStore';
 import { api } from './lib/api';
 
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'broker', label: 'Broker Health', icon: Shield },
   { id: 'pnl', label: 'P&L Tracking', icon: TrendingUp },
   { id: 'markets', label: 'Market Coverage', icon: Globe },
+  { id: 'tutorials', label: 'Tutorials', icon: BookOpen },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -22,6 +24,7 @@ export default function App() {
   const { connected, setConnected, mockMode, setMockMode } = useStore();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [schedulerPaused, setSchedulerPaused] = useState(false);
+  const [killSwitchActive, setKillSwitchActive] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,6 +38,13 @@ export default function App() {
       const health = await fetch(`${BACKEND_URL}/api/health`).then((r) => r.json());
       setConnected(true);
       setSchedulerPaused(health.paused ?? false);
+      
+      // Also check kill switch status
+      try {
+        const killStatus = await fetch(`${BACKEND_URL}/api/emergency/kill-switch`).then((r) => r.json());
+        setKillSwitchActive(killStatus.kill_switch_active ?? false);
+      } catch { /* kill switch endpoint may not exist */ }
+      
       setLoading(false);
     } catch {
       setConnected(false);
@@ -53,6 +63,16 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to toggle scheduler:', err);
+    }
+  };
+
+  const toggleKillSwitch = async () => {
+    try {
+      const newState = !killSwitchActive;
+      await api.toggleKillSwitch(newState);
+      setKillSwitchActive(newState);
+    } catch (err) {
+      console.error('Failed to toggle kill switch:', err);
     }
   };
 
@@ -114,6 +134,21 @@ export default function App() {
               </button>
             )}
 
+            {/* Kill Switch */}
+            <button
+              data-testid="kill-switch-btn"
+              onClick={toggleKillSwitch}
+              title="Emergency kill switch - immediately halts all trading"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                killSwitchActive
+                  ? 'bg-red-500/80 text-white animate-pulse'
+                  : 'bg-gray-700/40 text-gray-500 hover:bg-red-500/20 hover:text-red-400'
+              }`}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              <span className="hidden sm:inline">{killSwitchActive ? 'KILL' : 'Kill'}</span>
+            </button>
+
             {/* Connection badge */}
             <div
               data-testid="connection-status"
@@ -172,6 +207,7 @@ export default function App() {
         {activeTab === 'broker' && <BrokerHealth />}
         {activeTab === 'pnl' && <PnLTracking />}
         {activeTab === 'markets' && <MarketCoverage />}
+        {activeTab === 'tutorials' && <TutorialsDashboard />}
       </main>
     </div>
   );
