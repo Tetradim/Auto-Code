@@ -27,6 +27,15 @@ from pulse_client import PulseClient
 from scheduler import EvaluationScheduler
 from signals import SignalEngine
 
+# NEW: Resilience & persistence modules
+from state_persistence import StatePersistence, IdempotencyManager
+from rate_limit import RateLimiter, CCTXRateLimiter
+from json_logging import setup_json_logging, get_logger
+from audit import AuditTrail
+from config_audit import ConfigValidator, ConfigHasher
+from drift_detection import DriftDetector
+from export_api import router as export_router
+
 # Sentinel Edge analyst package
 from analyst.core import SentinelEdge
 from analyst.observability.otel import instrument_fastapi
@@ -55,6 +64,13 @@ db = _mongo_client[os.environ["DB_NAME"]]
 scheduler: EvaluationScheduler = None
 scheduler_task = None
 edge: SentinelEdge = None
+
+# NEW: Resilience module singletons (initialized in lifespan)
+state_persistence: StatePersistence = None
+idempotency_manager: IdempotencyManager = None
+audit_trail: AuditTrail = None
+drift_detector: DriftDetector = None
+config_hasher: ConfigHasher = None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Request / response models
@@ -196,6 +212,34 @@ async def lifespan(app: FastAPI):
     # Share the correlation engine and wire plugin discovery
     edge.set_scheduler(scheduler)
 
+    # ── Initialize new resilience modules ─────────────────────────────────────
+    global state_persistence, idempotency_manager, audit_trail, drift_detector, config_hasher
+    
+    # JSON structured logging for Loki
+    setup_json_logging(json_output=os.getenv("LOG_JSON", "true").lower() == "true")
+    audit_logger = get_logger("sentinel.audit")
+    
+    # State persistence (SQLite)
+    state_persistence = StatePersistence()
+    await state_persistence.init()
+    
+    # Idempotency manager for orders
+    idempotency_manager = IdempotencyManager()
+    await idempotency_manager.init()
+    
+    # Audit trail
+    audit_trail = AuditTrail()
+    await audit_trail.init()
+    
+    # Drift detection
+    drift_detector = DriftDetector()
+    await drift_detector.init()
+    
+    # Config validator (for validation endpoint)
+    config_hasher = ConfigHasher()
+    
+    logger.info("✅ Resilience modules initialized (persistence, audit, drift detection)")
+
     # Expose live instance to the webhook alert handler
     _analyst_core.analyst_instance = edge
 
@@ -211,6 +255,14 @@ async def lifespan(app: FastAPI):
 
     # ── Graceful shutdown ──────────────────────────────────────────────────
     logger.info("🛑 Shutting down Sentinel Edge...")
+    
+    # Cleanup new resilience modules
+    global state_persistence, idempotency_manager, audit_trail, drift_detector
+    state_persistence.close()
+    idempotency_manager.close()
+    audit_trail.close()
+    drift_detector.close()
+    
     edge.stop()
     scheduler.stop()
     if scheduler_task and not scheduler_task.done():
@@ -591,6 +643,41 @@ async def get_decisions():
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Config validation
+# ═══════════════════════════════════════════════════════════════════════════
+
+@api_router.post("/config/validate")
+async def validate_config(config: dict = Body(...)):
+    """Validate trading config and return hash for audit."""
+    validator = ConfigValidator()
+    issues = validator.validate(config)
+    
+    # Generate config hash
+    config_hash = config_hasher.hash_config(config) if config_hasher else None
+    
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "config_hash": config_hash,
+    }
+
+
+@api_router.get("/config/hash")
+async def get_config_hash():
+    """Get current config hash for audit trail."""
+    if not config_hasher:
+        return {"error": "Config hasher not initialized"}
+    
+    # Get config from scheduler or edge
+    try:
+        current_config = getattr(scheduler, 'config', {})
+        config_hash = config_hasher.hash_config(current_config)
+        return {"config_hash": config_hash}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @api_router.get("/correlation")
 async def get_correlation():
     """Correlation cluster list, market breadth summary, and latest cluster."""
@@ -620,6 +707,9 @@ app.include_router(api_router)
 
 # Alertmanager webhook receiver — /api/webhook/alert, /api/webhook/health
 app.include_router(webhook_router, prefix="/api")
+
+# Trade export endpoints — /export/trades, /export/pnl
+app.include_router(export_router)
 
 app.add_middleware(
     CORSMiddleware,

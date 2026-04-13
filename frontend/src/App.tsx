@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical, BookOpen, AlertTriangle } from 'lucide-react';
+import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical, BookOpen, AlertTriangle, Gauge } from 'lucide-react';
 import { TradingOverview } from './components/dashboards/TradingOverview';
 import { BrokerHealth } from './components/dashboards/BrokerHealth';
 import { PnLTracking } from './components/dashboards/PnLTracking';
 import { MarketCoverage } from './components/dashboards/MarketCoverage';
 import { TutorialsDashboard } from './components/tutorials';
+import { HealthDashboard } from './components';
 import { useStore } from './store/useStore';
 import { api } from './lib/api';
 
@@ -12,6 +13,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 
 const TABS = [
   { id: 'overview', label: 'Trading Overview', icon: Activity },
+  { id: 'health', label: 'Service Health', icon: Gauge },
   { id: 'broker', label: 'Broker Health', icon: Shield },
   { id: 'pnl', label: 'P&L Tracking', icon: TrendingUp },
   { id: 'markets', label: 'Market Coverage', icon: Globe },
@@ -204,6 +206,7 @@ export default function App() {
       {/* ── Page content ── */}
       <main className="max-w-screen-2xl mx-auto px-6 py-8" data-testid="main-content">
         {activeTab === 'overview' && <TradingOverview />}
+        {activeTab === 'health' && <HealthDashboard />}
         {activeTab === 'broker' && <BrokerHealth />}
         {activeTab === 'pnl' && <PnLTracking />}
         {activeTab === 'markets' && <MarketCoverage />}

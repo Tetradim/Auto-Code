@@ -32,20 +32,41 @@ router = APIRouter(prefix="/export", tags=["export"])
 # Export Functions
 # ═══════════════════════════════════════════════════════════
 
+def get_audit_trail():
+    """Get audit trail singleton from server.py."""
+    from server import audit_trail
+    return audit_trail
+
+
 async def get_trade_data(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     symbol: Optional[str] = None,
 ) -> List[dict]:
-    """Fetch trade data from audit database.
+    """Fetch trade data from audit database."""
+    try:
+        audit = get_audit_trail()
+        if audit and audit.conn:
+            query = "SELECT * FROM orders WHERE 1=1"
+            params = []
+            
+            if start:
+                query += " AND timestamp >= ?"
+                params.append(start.isoformat())
+            if end:
+                query += " AND timestamp <= ?"
+                params.append(end.isoformat())
+            if symbol:
+                query += " AND symbol = ?"
+                params.append(symbol)
+            
+            query += " ORDER BY timestamp DESC"
+            
+            rows = audit.conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+    except Exception:
+        pass
     
-    In production, this would query the audit.db or MongoDB.
-    For now, returns sample structure.
-    """
-    # This would import and use the audit trail
-    # from audit import AuditTrail
-    
-    # Return sample data structure
     return []
 
 
