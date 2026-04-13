@@ -90,6 +90,38 @@ groups:
           summary: "Drawdown exceeds 8% on {{ $labels.symbol }}"
           description: "Current drawdown: {{ $value }}%"
 
+      # ── Core beta alerts (minimum required) ────────────────────────────────
+
+      - alert: SentinelDown
+        expr: up{job="sentinel-edge"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: sentinel-edge
+        annotations:
+          summary: "Sentinel Edge bot is down"
+          description: "The bot has been unresponsive for 2 minutes. Check if the process is running."
+
+      - alert: StaleData
+        expr: time() - sentinel_last_tick > 30
+        for: 30s
+        labels:
+          severity: warning
+          service: sentinel-edge
+        annotations:
+          summary: "Stale data - no ticks received"
+          description: "No tick received in >30 seconds. Bot may be stuck."
+
+      - alert: DrawdownExceeded
+        expr: sentinel_drawdown_pct < -0.15
+        for: 0m
+        labels:
+          severity: critical
+          service: sentinel-edge
+        annotations:
+          summary: "Portfolio drawdown exceeded 15%"
+          description: "Current drawdown: {{ $value | printf \"%.1f\" }}%. Consider stopping the bot."
+
   # ── Analyst correlation rules ───────────────────────────────────────────
 
   - name: analyst_rules

@@ -1,9 +1,29 @@
 """Prometheus Metrics Definitions for Sentinel Edge"""
-from prometheus_client import Counter, Gauge, Histogram, Info
+from prometheus_client import Counter, Gauge, Histogram, Info, Enum
+
+# ═══════════════════════════════════════════════════════════
+# Core health metrics (required for alerts)
+# ═══════════════════════════════════════════════════════════
+
+# Bot up/down status (standard prometheus up metric)
+# Will be set by the health check endpoint
+
+# Last tick timestamp for staleness detection
+sentinel_last_tick = Gauge(
+    "sentinel_last_tick",
+    "Unix timestamp of last tick for staleness detection",
+    ["symbol"]
+)
+
+# Portfolio-level drawdown (not per-ticker)
+sentinel_drawdown_pct = Gauge(
+    "sentinel_drawdown_pct",
+    "Current portfolio drawdown as percentage (negative = loss from peak)",
+)
 
 # ═══════════════════════════════════════════════════════════
 # ORB METRICS
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
 
 edge_orb_breakouts_total = Counter(
     "edge_orb_breakouts_total",
