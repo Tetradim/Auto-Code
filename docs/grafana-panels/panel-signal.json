@@ -1,0 +1,9 @@
+{
+  "type": "text",
+  "title": "How to Read a Live Signal",
+  "options": {
+    "content": "<h3>How to Read a Signal</h3><ol><li>Is Edge Score > 70?</li><li>Is the Market Regime favorable?</li><li>Are multiple reasons (Orderflow + Funding + On-chain) agreeing?</li><li>Is risk reasonable?</li></ol><p>The more checks that pass, the higher quality the trade.</p>",
+    "mode": "html"
+  },
+  "gridPos": { "h": 6, "w": 12, "x": 0, "y": 3 }
+}

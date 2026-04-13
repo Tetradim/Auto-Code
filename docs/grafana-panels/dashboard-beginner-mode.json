@@ -1,0 +1,43 @@
+{
+  "title": "Sentinel Edge - Beginner Mode",
+  "uid": "sentinel-beginner",
+  "panels": [
+    {
+      "type": "text",
+      "title": "Welcome - Read This First",
+      "options": {
+        "content": "<h1>👋 Sentinel Edge - Beginner Mode</h1><p>This dashboard hides complicated numbers and focuses on what actually matters:<br><strong>1. Is the bot making money?<br>2. How much pain (drawdown) are we in?<br>3. What is it thinking right now?</strong></p>",
+        "mode": "html"
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Equity Curve (Is the bot making money over time?)",
+      "targets": [{ "expr": "equity_total", "legendFormat": "Account Value" }],
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "Current Drawdown",
+      "targets": [{ "expr": "drawdown_percent" }],
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "Edge Score (Higher = More Confident)",
+      "targets": [{ "expr": "current_edge_score" }],
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 13 }
+    },
+    {
+      "type": "text",
+      "title": "Live Signal Explanation",
+      "options": {
+        "content": "<h3>Current Thinking:</h3><p>The bot is currently looking at order flow and funding rates. Edge score is high when many signals agree.</p>",
+        "mode": "html"
+      },
+      "gridPos": { "h": 9, "w": 16, "x": 8, "y": 13 }
+    }
+  ],
+  "time": { "from": "now-7d", "to": "now" }
+}

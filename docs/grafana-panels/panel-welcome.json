@@ -1,0 +1,9 @@
+{
+  "type": "text",
+  "title": "Welcome - Start Here",
+  "options": {
+    "content": "<h2>👋 Welcome to Sentinel Edge</h2><p>This dashboard was designed for people new to trading.</p><p><strong>Start with the Equity Curve and Current Drawdown.</strong> Then move to the Live Sentinel dashboard to see what the bot is thinking right now.</p><p>Every major panel has an explanation below it.</p>",
+    "mode": "html"
+  },
+  "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 }
+}

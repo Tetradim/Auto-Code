@@ -1,0 +1,9 @@
+{
+  "type": "text",
+  "title": "How to Read Edge Score",
+  "options": {
+    "content": "<h3>Edge Score (0-100)</h3><p><strong>> 75 = Strong Edge</strong> — Bot is confident<br><strong>60-74 = Moderate</strong> — Okay but not ideal<br><strong>< 55 = No trade</strong></p><p>The higher the score, the more factors are lining up in the bot's favor.</p>",
+    "mode": "html"
+  },
+  "gridPos": { "h": 5, "w": 8, "x": 0, "y": 5 }
+}

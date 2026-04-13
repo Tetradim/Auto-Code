@@ -1,0 +1,9 @@
+{
+  "type": "text",
+  "title": "What is Drawdown?",
+  "options": {
+    "content": "<h3>What is Drawdown?</h3><p>Imagine your account reaches $10,000. It then drops to $8,200. You are now in a <strong>18% drawdown</strong>.</p><p>This is the real measure of pain. The bot tries to keep this number as low as possible while still making money.</p><p><strong>Good:</strong> Under 10%<br><strong>Warning:</strong> Over 18%</p>",
+    "mode": "html"
+  },
+  "gridPos": { "h": 6, "w": 8, "x": 0, "y": 10 }
+}
