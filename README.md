@@ -1,213 +1,277 @@
-# Sentinel Edge
+# Sentinel Edge — Production Trading System
 
-Sentinel Edge is an operator dashboard + edge API for managing Opening Range Breakout (ORB) workflows alongside a companion trading engine ("Sentinel Pulse").
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/React-18+-blue?logo=react" alt="React">
+  <img src="https://img.shields.io/badge/FastAPI-0.115-blue?logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/TypeScript-5-blue?logo=typescript" alt="TypeScript">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+</p>
 
-This repository currently provides:
+**Sentinel Edge** is a comprehensive, production-grade algorithmic trading system with real-time market data ingestion, multi-provider price feeds, backtesting engines, Monte Carlo risk simulation, strategy optimization, and automated decision-making capabilities.
 
-- a **React/Vite control UI** for monitoring ORB state, breakouts, and bot logs,
-- a **Hono edge service** with analysis + webhook endpoints,
-- **extracted Python/ops artifacts** for Docker/monitoring workflows.
-
-## Current Project Status (Important)
-
-Sentinel Edge is **not production-hardened yet**.
-
-Some logic is still scaffold/demo grade (for example, placeholder price handling in `POST /analyze`).
-Use this repo as a foundation that still needs:
-
-- real market data ingestion,
-- robust authn/authz,
-- stricter risk controls,
-- deployment hardening and end-to-end validation.
+This repository implements a complete trading pipeline from market data → signal generation → risk management → order execution with extensive safeguards, observability, and a modern React control interface.
 
 ---
 
-## Architecture at a Glance
+## 🚀 System Overview
 
-```text
-[Browser UI]
-   │
-   ├─ Reads/writes Blink tables (settings, orb_ranges, breakouts, bot_logs)
-   │
-   ▼
-[Hono Edge API]  POST /analyze, POST /pulse/webhook
-   │
-   ├─ Reads runtime settings from Blink
-   ├─ Pulls tickers from Sentinel Pulse
-   ├─ Evaluates ORB ranges, writes events/logs
-   └─ Optionally pushes control updates back to Pulse
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              SENTINEL EDGE ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│  ┌────────────────┐    ┌────────────────┐    ┌────────────────┐                 │
+│  │  React UI      │───▶│  FastAPI       │───▶│  Decision      │                 │
+│  │  (Dashboard)  │◀───│  Server        │◀───│  Engine        │                 │
+│  └────────────────┘    └────────────────┘    └────────────────┘                 │
+│         │                      │                      │                           │
+│         ▼                      ▼                      ▼                           │
+│  ┌────────────────┐    ┌────────────────┐    ┌────────────────┐                 │
+│  │  WebSocket     │    │  Price         │    │  Risk          │                 │
+│  │  Real-time    │    │  Fetchers      │    │  Management   │                 │
+│  └────────────────┘    └────────────────┘    └────────────────┘                 │
+│         │                      │                      │                           │
+│         └────────────────────┼──────────────────────┘                           │
+│                            ▼                                                  │
+│                  ┌─────────────────────┐                                    │
+│                  │  Trading Scheduler  │                                     │
+│                  │  (Evaluation Loop)  │                                    │
+│                  └─────────────────────┘                                    │
+│                            │                                                │
+│         ┌──────────────────┼──────────────────────┐                          │
+│         ▼                  ▼                  ▼                              │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                    │
+│  │  Provider  │    │  Backtest   │    │  Pulse     │                    │
+│  │  Health    │    │  Engine     │    │  Client    │                    │
+│  └─────────────┘    └─────────────┘    └─────────────┘                    │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Repository Layout
+## 📁 Repository Structure
 
-```text
-.
+```
+sentinel-edge/
 ├── backend/
-│   └── index.ts
-├── src/
-│   ├── App.tsx
-│   ├── hooks/useSentinelData.ts
-│   ├── pages/
-│   │   ├── Dashboard.tsx
-│   │   ├── Tickers.tsx
-│   │   ├── Logs.tsx
-│   │   └── Settings.tsx
-│   └── extracted/
-│       ├── sentinel_edge_v2.py
-│       ├── Dockerfile
-│       ├── docker-compose.monitoring.yml
-│       ├── prometheus.yml
-│       └── *.md ops/architecture notes
-├── package.json
+│   ├── server.py                    # FastAPI main entry point
+│   ├── engine.py                    # Core decision engine
+│   ├── scheduler.py                 # Evaluation scheduler + safeguards
+│   ├── price_fetcher.py             # Multi-provider price aggregation
+│   ├── pulse_client.py              # Sentinel Pulse integration
+│   ├── retry_queue.py               # Priority queue for decision retry
+│   ├── metrics.py                   # Prometheus metrics
+│   ├── providers/
+│   │   ├── base.py                  # BasePriceProvider abstract class
+│   │   ├── health.py                # Provider health monitoring
+│   │   ├── polygon_provider.py     # Polygon.io integration
+│   │   ├── finnhub_provider.py     # Finnhub integration
+│   │   └── yfinance_provider.py    # Yahoo Finance (fallback)
+│   ├── backtest/
+│   │   ├── engine.py                # BacktestEngine with slippage/commission
+│   │   ├── monte_carlo.py          # Monte Carlo simulation engine
+│   │   └── runner.py                # Backtest CLI runner
+│   ├── strategies/
+│   │   ├── versioning.py            # Strategy version manager
+│   │   └── optimizer.py             # Grid search optimizer
+│   └── tests/
+│       ├── test_engine_risk_overrides.py
+│       ├── test_pulse_retry_queue.py
+│       └── test_backtest_engine.py
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Dashboard.tsx
+│   │   │   ├── TickerConfigModal.tsx
+│   │   │   ├── BacktestResultsChart.tsx
+│   │   │   ├── HealthStatusCard.tsx
+│   │   │   └── DraggableList.tsx
+│   │   ├── lib/
+│   │   │   ├── api.ts
+│   │   │   ├── ws.ts
+│   │   │   └── hooks.ts
+│   │   └── pages/
+│   ├── package.json
+│   └── vite.config.ts
+├── docker-compose.yml
+├── docker-compose.monitoring.yml
+├── prometheus.yml
+├── .env.example
+├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Tech Stack
+## ✨ Features
 
-- **Frontend:** React + TypeScript + Vite + TanStack Router + Blink UI
-- **Backend:** Hono + Blink SDK
-- **Data/Auth layer:** Blink (`@blinkdotnew/react`, `@blinkdotnew/sdk`)
-- **Ops artifacts:** Python + Docker + Prometheus/Grafana configs
+### Phase 1: Core Metrics
+- Opening Range Breakout (ORB) — Track 9:30-9:45 AM volatility
+- Average True Range (ATR) — Volatility-adjusted position sizing
+- Momentum Signals — Composite signal scoring engine
+- Real-time price updates — Multi-timeframe analysis
 
----
+### Phase 2: Scheduler
+- Config-driven evaluation — Per-symbol parameter overrides
+- Scheduled execution — Configurable intervals
+- Market hours filtering — US market open detection
 
-## Prerequisites
+### Phase 3: WebSocket Integration
+- Real-time price feeds — Live market data streaming
+- Exponential backoff — Reconnection resilience
+- Dynamic subscriptions — Per-symbol updates
 
-- Node.js 20+
-- npm
-- Blink project credentials
-- Reachable Sentinel Pulse API (for integration testing)
+### Phase 4: Provider Health
+- Multi-provider fallback — Primary/secondary price sources
+- Health monitoring — Provider latency & failure tracking
+- Drag-to-reorder — UI for provider priority
 
-> Linting and checks are standardized on npm scripts (`npm run lint`).
+### Phase 5: Backtest & Dry-Run
+- Historical simulation — Replay strategy on historical data
+- Dry-run mode — Simulated trading without capital
+- Equity curve — Track portfolio growth
 
----
+### Phase 6: Provider Implementations
+- Polygon.io — Full REST + WebSocket ready
+- Finnhub — Quote + candle endpoints
+- Slippage modeling — Realistic execution costs
+- Commission tracking — Per-trade cost accounting
 
-## Configuration
+### Phase 7: Monte Carlo
+- Probabilistic simulation — 1000+ outcomes
+- Risk metrics — VaR, profit probability
+- Stress testing — Volatility multiplier
 
-### Environment variables
-
-| Variable | Required | Purpose |
-|---|---:|---|
-| `VITE_BLINK_PROJECT_ID` | Yes | Blink project id used by client/backend initialization |
-| `BLINK_SECRET_KEY` | Yes (backend) | Server credential used by edge API |
-| `VITE_EDGE_API_URL` | Optional | Base URL for backend control endpoints (for example emergency stop) |
-
-### Runtime settings (Blink `settings` table)
-
-| Key | Purpose | Example |
-|---|---|---|
-| `pulse_api_url` | Base URL of Sentinel Pulse | `https://pulse.example.com` |
-| `pulse_api_key` | Optional Pulse API key header (`X-API-KEY`) | `secret_value` |
-| `orb_minutes` | Preferred ORB timeframe in UI/settings | `15` |
-| `auto_control_enabled` | Enables automatic control actions (`1` / `0`) | `1` |
-| `pulse_engine_status` | UI status indicator for pulse engine | `running` |
-| `edge_control_secret` | Secret header value used by `/pulse/emergency-stop` | `edge_ctrl_...` |
-
----
-
-## Quick Start (Operator Flow)
-
-1. Start the UI (`npm run dev`).
-2. Authenticate with Blink in the app.
-3. Open **Configuration** and set `pulse_api_url`, `pulse_api_key` (if required), and ORB settings.
-4. Confirm Pulse connectivity/status in the dashboard.
-5. Trigger/observe analysis events and verify `breakouts` + `bot_logs` updates.
+### Phase 8: Strategy Optimization
+- Grid search — Automated parameter tuning
+- Strategy versioning — Performance history tracking
+- Production safeguards — Circuit breaker + kill switch
+- Daily loss limits — Automatic trading pause
 
 ---
 
-## Local Development
+## 🛠️ Tech Stack
 
-Install dependencies:
+| Component | Technology | Version |
+|-----------|------------|---------|
+| Backend Framework | FastAPI | 0.115+ |
+| Async Runtime | asyncio / uvicorn | Python 3.11+ |
+| Database | MongoDB (Motor) | 6.0+ |
+| Frontend | React + TypeScript | 18+ / 5.0+ |
+| Build Tool | Vite | 5.0+ |
+| HTTP Client | httpx | 0.27+ |
+| Data Handling | pandas / numpy | latest |
 
+---
+
+## ⚡ Quick Start
+
+### 1. Clone & Install
 ```bash
-npm install
+git clone https://github.com/Tetradim/sentinel-edge.git
+cd sentinel-edge
 ```
 
-Run frontend dev server:
-
+### 2. Backend Setup
 ```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+### 3. Run Backend
+```bash
+uvicorn backend.server:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 4. Run Frontend
+```bash
+cd frontend
+npm install
 npm run dev
 ```
 
-Create production build:
+---
 
-```bash
-npm run build
+## 📊 API Endpoints
+
+### Market Data
+- GET /api/markets — List available markets
+- GET /api/markets/{symbol}/price — Current price
+- GET /api/orb/{symbol} — ORB levels
+
+### Configuration
+- GET/POST /api/tickers — List/update ticker configs
+
+### Control
+- POST /api/control/start|stop|pause|resume
+
+### Backtest & Optimization
+- POST /api/backtest — Run backtest simulation
+- POST /api/backtest/optimize — Grid search optimization
+
+### Emergency
+- POST /api/emergency/kill-switch — Toggle emergency stop
+
+---
+
+## 🔬 Backtest Engine
+
+Run historical simulation:
+```json
+{
+  "symbol": "SPY",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "initial_capital": 10000,
+  "slippage_pct": 0.05,
+  "commission_pct": 0.1,
+  "num_simulations": 1000
+}
 ```
 
-Optional lint/check flows:
+Returns equity curve, trade log, performance metrics, and Monte Carlo risk analysis.
+
+---
+
+## 🎛️ Monte Carlo Simulation
+
+| Metric | Description |
+|--------|-------------|
+| median_final_equity | 50th percentile outcome |
+| worst_case_equity | 5th percentile (VaR) |
+| probability_of_profit | % of profitable runs |
+| mean_max_drawdown | Average drawdown |
+
+---
+
+## 🔐 Production Safeguards
+
+- **Kill Switch**: Instantly halts all trading
+- **Daily Loss Limit**: Auto-pause at -5% daily loss
+- **Circuit Breaker**: Provider fallback on failure
+
+---
+
+## 🧪 Testing
 
 ```bash
-npm run lint:types
-npm run lint:js
-npm run lint:css
-npm run lint
-npm run test
+pytest backend/tests/ -v
 ```
 
 ---
 
-## Edge API
+## 📈 Deployment
 
-### `POST /analyze`
-
-High-level behavior:
-
-1. Load runtime settings (`pulse_api_url`, `pulse_api_key`, `auto_control_enabled`).
-2. Fetch enabled tickers from Pulse (`GET {pulse_api_url}/api/tickers`).
-3. Load ORB range records (currently keyed like `${symbol}_15`).
-4. Evaluate breakout logic.
-5. Write `breakouts` + `bot_logs` records.
-6. Optionally send control updates to Pulse (`PUT /api/tickers/{symbol}`).
-
-### `POST /pulse/webhook`
-
-Accepts trade event payloads from Pulse and appends readable entries to `bot_logs`.
+```bash
+docker-compose up -d
+```
 
 ---
 
-## Data Surfaces Used by the UI
+## ⚠️ Disclaimer
 
-- `orb_ranges` (range values displayed/queried)
-- `breakouts` (event feed)
-- `bot_logs` (alert + audit stream)
-- `settings` (integration and runtime controls)
+This software is for educational purposes. Past backtest results do not guarantee future performance. Always use paper trading before live capital.
 
 ---
-
-## Troubleshooting
-
-- **"Pulse API URL not configured"**: add `pulse_api_url` in the settings table/UI before calling `/analyze`.
-- **No breakout rows visible**: verify `orb_ranges` has current-day records and symbol keys that match runtime expectations.
-- **Pulse status looks stale**: refresh from the dashboard and ensure `pulse_engine_status` is updated by backend or control actions.
-- **Build warnings about exports/chunk size**: currently non-fatal in this repo; build artifacts are still produced.
-
----
-
-## Known Gaps Before Live Trading Use
-
-- Replace placeholder/mock pricing in analysis path.
-- Add authenticated user context and real JWT/API verification.
-- Protect backend endpoints with stricter authorization rules.
-- Add retries/timeouts/circuit-breakers for Pulse calls.
-- Add deterministic test coverage for breakout and risk-control paths.
-- Run paper-trading + staging drills before any capital exposure.
-
----
-
-## Scripts
-
-- `npm run dev` — start Vite dev server
-- `npm run build` — build frontend artifacts
-- `npm run preview` — preview build output
-- `npm run lint:types` — type-check with `tsc --noEmit`
-- `npm run lint:js` — ESLint
-- `npm run lint:css` — Stylelint
-- `npm run check:css-vars` — validate CSS variable usage
-- `npm run check:css-classes` — validate CSS class references
-- `npm run lint` — aggregate lint/check script (npm)
-- `npm run test` — run backend service unit tests (Vitest)
