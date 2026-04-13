@@ -119,6 +119,7 @@ class OrderRecord:
     pnl: Optional[float] = None
     pnl_pct: Optional[float] = None
     error: Optional[str] = None
+    config_hash: Optional[str] = None  # Added: config that produced this trade
 
 
 @dataclass
@@ -195,7 +196,8 @@ class AuditTrail:
                 fill_time TEXT,
                 pnl REAL,
                 pnl_pct REAL,
-                error TEXT
+                error TEXT,
+                config_hash TEXT
             );
             
             CREATE TABLE IF NOT EXISTS ticks (
@@ -292,13 +294,14 @@ class AuditTrail:
         side: str,
         price: float,
         size: float,
+        config_hash: Optional[str] = None,
     ) -> int:
-        """Log order creation."""
+        """Log order creation with config hash."""
         start = time.perf_counter()
         
         self.conn.execute("""
-            INSERT INTO orders (order_id, signal_id, symbol, side, status, price, size, timestamp)
-            VALUES (?, ?, ?, ?, 'created', ?, ?, ?)
+            INSERT INTO orders (order_id, signal_id, symbol, side, status, price, size, timestamp, config_hash)
+            VALUES (?, ?, ?, ?, 'created', ?, ?, ?, ?)
         """, (
             order_id,
             signal_id,
@@ -307,6 +310,7 @@ class AuditTrail:
             price,
             size,
             datetime.now(timezone.utc).isoformat(),
+            config_hash,
         ))
         self.conn.commit()
         
