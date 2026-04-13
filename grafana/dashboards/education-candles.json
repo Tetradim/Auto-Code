@@ -1,0 +1,408 @@
+{
+  "title": "Sentinel Edge — Market Education (Beginner)",
+  "uid": "se-education-candles",
+  "tags": ["sentinel-edge", "education", "beginner", "candlestick", "orb"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-2h", "to": "now"},
+  "description": "Educational dashboard for new-to-market viewers. Shows the same data the bot sees, with plain-English explanations of every panel.",
+  "templating": {
+    "list": [
+      {
+        "name": "symbol",
+        "label": "Symbol",
+        "type": "query",
+        "datasource": {"type": "prometheus"},
+        "query": "label_values(edge_signal_strength, symbol)",
+        "refresh": 2,
+        "multi": false,
+        "includeAll": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+
+    {
+      "id": 900, "type": "row", "title": "What is the market doing right now?",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 1, "type": "stat",
+      "title": "Is the Market Open?",
+      "description": "The US stock market trades 9:30 AM – 4:00 PM Eastern Time, Monday–Friday. When CLOSED, the bot pauses all trading activity.",
+      "gridPos": {"x": 0, "y": 1, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(market_open_status)", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "CLOSED — Bot is waiting", "color": "red"}}},
+        {"type": "value", "options": {"1": {"text": "OPEN — Bot is active",   "color": "green"}}}
+      ]}}
+    },
+    {
+      "id": 2, "type": "stat",
+      "title": "Current Price — $symbol",
+      "description": "The most recent trade price for this symbol. Updates every 5 seconds from the bot's price feed.",
+      "gridPos": {"x": 4, "y": 1, "w": 4, "h": 4},
+      "targets": [{"expr": "current_price{symbol=\"$symbol\"}", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2}}
+    },
+    {
+      "id": 3, "type": "stat",
+      "title": "Is Price Above or Below VWAP?",
+      "description": "VWAP (Volume Weighted Average Price) is the average price everyone has paid today, weighted by how much they traded. Think of it as 'fair value' for the day. Price above = buyers in control. Below = sellers in control.",
+      "gridPos": {"x": 8, "y": 1, "w": 5, "h": 4},
+      "targets": [{"expr": "(current_price{symbol=\"$symbol\"} - edge_vwap{symbol=\"$symbol\"}) / edge_vwap{symbol=\"$symbol\"} * 100", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]},
+        "text": {"titleSize": 12, "valueSize": 24}
+      },
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": -100, "color": "red"},
+          {"value": 0,    "color": "green"}
+        ]},
+        "mappings": []
+      }}
+    },
+    {
+      "id": 4, "type": "gauge",
+      "title": "Signal Score — How bullish is the bot right now?",
+      "description": "The bot combines RSI, MACD, VWAP position, volume, ORB status, and candle patterns into a single 0-100 score. Above 60 = the bot may buy. Below 30 = the bot stays defensive. Think of it like a 'confidence meter'.",
+      "gridPos": {"x": 13, "y": 1, "w": 6, "h": 4},
+      "targets": [{"expr": "edge_signal_strength{symbol=\"$symbol\"}", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "red",    "name": "Defensive"},
+          {"value": 30, "color": "orange", "name": "Cautious"},
+          {"value": 60, "color": "green",  "name": "Bullish"}
+        ]}
+      }}
+    },
+    {
+      "id": 5, "type": "stat",
+      "title": "RSI — Is the stock overbought or oversold?",
+      "description": "RSI (Relative Strength Index) measures momentum on a 0-100 scale. Above 70: the stock has risen quickly and may be 'overbought' — buyers may be exhausted. Below 30: the stock has fallen quickly and may be 'oversold' — sellers may be exhausted. 40-60 is neutral territory.",
+      "gridPos": {"x": 19, "y": 1, "w": 5, "h": 4},
+      "targets": [{"expr": "edge_rsi{symbol=\"$symbol\"}", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "blue",   "name": "Oversold"},
+          {"value": 30, "color": "green",  "name": "Neutral"},
+          {"value": 70, "color": "orange", "name": "Overbought"},
+          {"value": 80, "color": "red",    "name": "Extremely Overbought"}
+        ]}
+      }}
+    },
+
+    {
+      "id": 901, "type": "row", "title": "Candlestick Formation Guide — What the bot sees",
+      "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 10, "type": "text",
+      "title": "How to read a candlestick",
+      "description": "",
+      "gridPos": {"x": 0, "y": 6, "w": 8, "h": 6},
+      "options": {
+        "mode": "markdown",
+        "content": "## Reading a candlestick\n\nEach candle represents **one time period** (5 minutes, 15 minutes, 1 hour, etc.).\n\n| Part | Meaning |\n|------|---------|\n| **Green body** | Price went UP this period (close > open) |\n| **Red body** | Price went DOWN this period (close < open) |\n| **Upper wick** | The highest price touched this period |\n| **Lower wick** | The lowest price touched this period |\n\n### Key patterns the bot watches:\n- **Hammer** — long lower wick on a green candle. Buyers pushed back hard against sellers. Potential reversal upward.\n- **Doji** — tiny body, long wicks. Open ≈ close. Neither side won. Signal of indecision.\n- **Bullish Engulfing** — a large green candle that completely 'swallows' the prior red candle. Strong reversal signal.\n- **Shooting Star** — long upper wick. Buyers tried to push it up but failed. Potential reversal downward."
+      }
+    },
+    {
+      "id": 11, "type": "timeseries",
+      "title": "Candle Pattern Events — $symbol (rate per 5m)",
+      "description": "Every time the bot detects a specific candlestick pattern on this symbol, it logs it here. A spike = multiple patterns detected in a short window, which raises the signal score.",
+      "gridPos": {"x": 8, "y": 6, "w": 16, "h": 6},
+      "targets": [
+        {"expr": "rate(analyst_candle_pattern_total{symbol=\"$symbol\"}[5m])", "refId": "A", "legendFormat": "{{pattern}} ({{direction}})"}
+      ],
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "lineWidth": 2}}},
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      }
+    },
+    {
+      "id": 12, "type": "stat",
+      "title": "Bullish candle patterns (last 15m)",
+      "description": "How many bullish patterns (hammer, bullish engulfing, morning star) have fired in the last 15 minutes. More patterns = higher confidence.",
+      "gridPos": {"x": 0, "y": 12, "w": 4, "h": 3},
+      "targets": [{"expr": "sum(increase(analyst_candle_pattern_total{symbol=\"$symbol\", direction=\"bullish\"}[15m]))", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "green"}]}}}
+    },
+    {
+      "id": 13, "type": "stat",
+      "title": "Bearish candle patterns (last 15m)",
+      "description": "How many bearish patterns (shooting star, bearish engulfing, evening star) have fired in the last 15 minutes. High counts here tell the bot to stay on the sidelines.",
+      "gridPos": {"x": 4, "y": 12, "w": 4, "h": 3},
+      "targets": [{"expr": "sum(increase(analyst_candle_pattern_total{symbol=\"$symbol\", direction=\"bearish\"}[15m]))", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "red"}]}}}
+    },
+    {
+      "id": 14, "type": "stat",
+      "title": "Doji patterns (last 15m)",
+      "description": "How many doji (indecision) candles appeared recently. High doji count near a key price level = the market is unsure. The bot lowers its position size when indecision is high.",
+      "gridPos": {"x": 8, "y": 12, "w": 4, "h": 3},
+      "targets": [{"expr": "sum(increase(analyst_candle_pattern_total{symbol=\"$symbol\", pattern=\"doji\"}[15m]))", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+
+    {
+      "id": 902, "type": "row", "title": "Opening Range Breakout (ORB) — The bot's #1 trigger",
+      "gridPos": {"x": 0, "y": 15, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 20, "type": "text",
+      "title": "What is an ORB breakout?",
+      "gridPos": {"x": 0, "y": 16, "w": 7, "h": 7},
+      "options": {
+        "mode": "markdown",
+        "content": "## Opening Range Breakout\n\nThe first **15 minutes** of the trading day (9:30–9:45 AM ET) are the most volatile. Institutions place big orders. Price swings wildly.\n\nThe bot records:\n- **ORB High** — the highest price touched in those 15 minutes\n- **ORB Low** — the lowest price touched in those 15 minutes\n\nThese become **key levels** for the rest of the day:\n\n| Price Action | What It Means | Bot Response |\n|---|---|---|\n| Price **rises above ORB High** | Buyers won the morning battle | May **BUY** if volume confirms |\n| Price **stays inside the range** | Indecision — wait | Bot **waits** |\n| Price **drops below ORB Low** | Sellers won the morning battle | May **exit or skip** |\n\n### Why does it work?\nWhen price breaks out of the opening range with strong volume, it signals that one side (buyers or sellers) has taken clear control. Momentum tends to follow."
+      }
+    },
+    {
+      "id": 21, "type": "timeseries",
+      "title": "Price vs ORB Levels — $symbol",
+      "description": "Price line shown alongside the ORB High (green dashed) and ORB Low (red dashed). When the price line crosses a dashed line = breakout event. The shaded zone between the dashed lines is the 'wait' zone.",
+      "gridPos": {"x": 7, "y": 16, "w": 17, "h": 7},
+      "targets": [
+        {"expr": "current_price{symbol=\"$symbol\"}",                          "refId": "A", "legendFormat": "Price"},
+        {"expr": "edge_orb_high{symbol=\"$symbol\", timeframe=\"15m\"}",       "refId": "B", "legendFormat": "ORB High (resistance — watch for breakout above)"},
+        {"expr": "edge_orb_low{symbol=\"$symbol\",  timeframe=\"15m\"}",       "refId": "C", "legendFormat": "ORB Low (support — watch for breakdown below)"},
+        {"expr": "edge_vwap{symbol=\"$symbol\"}",                              "refId": "D", "legendFormat": "VWAP (institutional fair value)"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "currencyUSD", "decimals": 2, "custom": {"lineWidth": 2}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Price"},        "properties": [{"id": "custom.lineWidth", "value": 3}]},
+          {"matcher": {"id": "byName", "options": "ORB High (resistance — watch for breakout above)"}, "properties": [
+            {"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}},
+            {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [8, 4]}}
+          ]},
+          {"matcher": {"id": "byName", "options": "ORB Low (support — watch for breakdown below)"}, "properties": [
+            {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+            {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [8, 4]}}
+          ]},
+          {"matcher": {"id": "byName", "options": "VWAP (institutional fair value)"}, "properties": [
+            {"id": "color", "value": {"fixedColor": "purple", "mode": "fixed"}},
+            {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [4, 4]}}
+          ]}
+        ]
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "id": 22, "type": "stat",
+      "title": "ORB High — $symbol",
+      "description": "The highest price reached in the first 15 minutes today. A confirmed move above this level (with strong volume) is the bot's primary buy signal.",
+      "gridPos": {"x": 0, "y": 23, "w": 4, "h": 3},
+      "targets": [{"expr": "edge_orb_high{symbol=\"$symbol\", timeframe=\"15m\"}", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2, "thresholds": {"steps": [{"value": 0, "color": "green"}]}}}
+    },
+    {
+      "id": 23, "type": "stat",
+      "title": "ORB Low — $symbol",
+      "description": "The lowest price reached in the first 15 minutes today. A drop below this level signals the bears are in control — the bot avoids buying.",
+      "gridPos": {"x": 4, "y": 23, "w": 4, "h": 3},
+      "targets": [{"expr": "edge_orb_low{symbol=\"$symbol\", timeframe=\"15m\"}", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2, "thresholds": {"steps": [{"value": 0, "color": "red"}]}}}
+    },
+    {
+      "id": 24, "type": "stat",
+      "title": "ORB Breakouts detected today",
+      "description": "How many times today the bot saw price break decisively out of the opening range for this symbol.",
+      "gridPos": {"x": 8, "y": 23, "w": 4, "h": 3},
+      "targets": [{"expr": "sum(increase(analyst_orb_breakouts_total{symbol=\"$symbol\"}[1d]))", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+
+    {
+      "id": 903, "type": "row", "title": "ATR & Trailing Stop — How the bot protects its profits",
+      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 30, "type": "text",
+      "title": "What is ATR and a trailing stop?",
+      "gridPos": {"x": 0, "y": 27, "w": 7, "h": 8},
+      "options": {
+        "mode": "markdown",
+        "content": "## ATR — Average True Range\n\nATR measures **how much a stock typically moves per candle**.\n\n- **High ATR** = volatile stock (big swings, like TSLA)\n- **Low ATR** = calm stock (small moves, like a utility)\n\nThe bot uses ATR to set stops at a distance that's meaningful for *this specific stock* — not the same dollar amount for everyone.\n\n---\n\n## Trailing Stop\n\nA trailing stop is a **floor that rises with profits but never falls**.\n\n**Example:**\n- You buy at $150\n- ATR = $2, multiplier = 2×\n- Stop starts at $150 − $4 = **$146**\n- Price rises to $160 → stop rises to **$156**\n- Price rises to $165 → stop rises to **$161**\n- Price drops to $161 → **bot exits automatically** — profit locked in!\n\nThe stop **protects gains** without needing to watch the screen constantly."
+      }
+    },
+    {
+      "id": 31, "type": "timeseries",
+      "title": "ATR — Volatility over time — $symbol",
+      "description": "Watch this panel to see when a stock gets more or less volatile. A rising ATR before an ORB breakout = more powerful move likely. The bot widens stops automatically when ATR rises.",
+      "gridPos": {"x": 7, "y": 27, "w": 17, "h": 4},
+      "targets": [
+        {"expr": "analyst_atr_value{symbol=\"$symbol\"}", "refId": "A", "legendFormat": "ATR (analyst)"},
+        {"expr": "edge_atr_value{symbol=\"$symbol\"}",    "refId": "B", "legendFormat": "ATR (engine — used for stop calculation)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 3, "custom": {"fillOpacity": 20, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+    },
+    {
+      "id": 32, "type": "timeseries",
+      "title": "Trailing Stop Distance — How far is the floor? — $symbol",
+      "description": "This shows how many dollars separate the current price from the trailing stop level. When this line approaches zero, the bot is about to exit the trade. Think of it as a countdown to exit.",
+      "gridPos": {"x": 7, "y": 31, "w": 17, "h": 4},
+      "targets": [
+        {"expr": "edge_trailing_stop_distance{symbol=\"$symbol\"}", "refId": "A", "legendFormat": "Distance to stop ($)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2, "min": 0,
+        "custom": {"fillOpacity": 25, "lineWidth": 2},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,   "color": "red"},
+          {"value": 0.5, "color": "orange"},
+          {"value": 2,   "color": "green"}
+        ]}
+      }},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 33, "type": "stat",
+      "title": "Current ATR — $symbol",
+      "description": "Today's average true range in dollars. This is the core input for the trailing stop calculation.",
+      "gridPos": {"x": 0, "y": 27, "w": 3, "h": 4},
+      "targets": [{"expr": "edge_atr_value{symbol=\"$symbol\"}", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 3}}
+    },
+    {
+      "id": 34, "type": "stat",
+      "title": "Stop Distance",
+      "description": "Dollars between current price and the trailing stop. Turns red when tight — exit is near.",
+      "gridPos": {"x": 0, "y": 31, "w": 3, "h": 4},
+      "targets": [{"expr": "edge_trailing_stop_distance{symbol=\"$symbol\"}", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,   "color": "red"},
+          {"value": 0.5, "color": "orange"},
+          {"value": 2,   "color": "green"}
+        ]}
+      }}
+    },
+
+    {
+      "id": 904, "type": "row", "title": "Bullish & Bearish Indicators — The bot's decision scorecard",
+      "gridPos": {"x": 0, "y": 35, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 40, "type": "text",
+      "title": "How the bot combines indicators",
+      "gridPos": {"x": 0, "y": 36, "w": 6, "h": 10},
+      "options": {
+        "mode": "markdown",
+        "content": "## The scoring system\n\nThe bot doesn't rely on any single indicator. It combines multiple signals:\n\n| Indicator | Bullish condition | Bearish condition |\n|-----------|-------------------|-------------------|\n| **RSI** | Rising, between 40–70 | Below 30 or above 80 |\n| **MACD** | MACD line above signal line | MACD line below signal line |\n| **VWAP** | Price above VWAP | Price below VWAP |\n| **Volume** | Vol ratio > 1.5× | Normal or low volume |\n| **ORB** | Broke above ORB High | Below ORB Low |\n| **Candle patterns** | Hammer, engulfing, morning star | Shooting star, bearish engulfing |\n\n### The key insight\nNo single signal is reliable alone. When **3 or more** point the same direction, the bot considers acting. This is called **confluence** — and it's how professional traders think.\n\n**Signal score ≥ 60** → Bot may buy  \n**Signal score 30–60** → Bot waits  \n**Signal score < 30** → Bot stays flat or defensive"
+      }
+    },
+    {
+      "id": 41, "type": "timeseries",
+      "title": "Composite Signal Score over time — $symbol",
+      "description": "Watching this line over time shows you when the bot was confident (score rising toward 60+) and when it backed off (score dropping). Cross this timeline against price to understand why the bot acted when it did.",
+      "gridPos": {"x": 6, "y": 36, "w": 18, "h": 5},
+      "targets": [
+        {"expr": "edge_signal_strength{symbol=\"$symbol\"}", "refId": "A", "legendFormat": "Signal score (0–100)"}
+      ],
+      "fieldConfig": {"defaults": {"min": 0, "max": 100,
+        "custom": {"fillOpacity": 20, "lineWidth": 3, "gradientMode": "hue"},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "red"},
+          {"value": 30, "color": "orange"},
+          {"value": 60, "color": "green"}
+        ]}
+      }},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
+    },
+    {
+      "id": 42, "type": "timeseries",
+      "title": "RSI — Momentum meter — $symbol",
+      "description": "Watch for RSI crossing 30 from below (bullish recovery) or dropping below 30 (oversold). These crosses are key moments where momentum is shifting. The horizontal bands show the overbought (70) and oversold (30) zones.",
+      "gridPos": {"x": 6, "y": 41, "w": 9, "h": 5},
+      "targets": [
+        {"expr": "edge_rsi{symbol=\"$symbol\"}", "refId": "A", "legendFormat": "RSI"}
+      ],
+      "fieldConfig": {"defaults": {"min": 0, "max": 100,
+        "custom": {"fillOpacity": 10, "lineWidth": 2},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "blue"},
+          {"value": 30, "color": "green"},
+          {"value": 70, "color": "orange"},
+          {"value": 80, "color": "red"}
+        ]}
+      }},
+      "options": {"tooltip": {"mode": "single"}}
+    },
+    {
+      "id": 43, "type": "timeseries",
+      "title": "MACD — Trend change detector — $symbol",
+      "description": "Watch the blue MACD line cross above the orange signal line — that's when momentum turns bullish. When MACD crosses below the signal line, momentum is turning bearish. The histogram (bars) shows how far apart they are.",
+      "gridPos": {"x": 15, "y": 41, "w": 9, "h": 5},
+      "targets": [
+        {"expr": "edge_macd_line{symbol=\"$symbol\"}",      "refId": "A", "legendFormat": "MACD line (trend)"},
+        {"expr": "edge_macd_signal{symbol=\"$symbol\"}",    "refId": "B", "legendFormat": "Signal line (trigger)"},
+        {"expr": "edge_macd_histogram{symbol=\"$symbol\"}", "refId": "C", "legendFormat": "Histogram (gap)"}
+      ],
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 905, "type": "row", "title": "Volume — The confirmation signal",
+      "gridPos": {"x": 0, "y": 46, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 50, "type": "text",
+      "title": "Why volume matters",
+      "gridPos": {"x": 0, "y": 47, "w": 6, "h": 5},
+      "options": {
+        "mode": "markdown",
+        "content": "## Volume = conviction\n\nVolume tells you **how many shares traded** in a given period. It's not the price that matters alone — it's *how many people participated*.\n\n| Volume Ratio | Meaning | Bot reaction |\n|---|---|---|\n| < 1.0× | Below average — quiet day | Lower conviction |\n| 1.0–1.5× | Normal | Baseline |\n| 1.5–2.5× | **Elevated** — something is happening | Raises signal score |\n| > 2.5× | **Surge** — big institutional move | Strongest confirmation |\n\nAn ORB breakout on 3× normal volume is far more meaningful than the same breakout on 0.8× volume. Volume is the exclamation mark on the sentence."
+      }
+    },
+    {
+      "id": 51, "type": "timeseries",
+      "title": "Volume Ratio — $symbol (vs average)",
+      "description": "A value of 1.0 = exactly average volume. 2.0 = twice the average. The horizontal threshold lines show where the bot starts paying extra attention.",
+      "gridPos": {"x": 6, "y": 47, "w": 18, "h": 5},
+      "targets": [
+        {"expr": "edge_volume_ratio{symbol=\"$symbol\"}", "refId": "A", "legendFormat": "Volume ratio vs average"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 2, "min": 0,
+        "custom": {"fillOpacity": 20, "lineWidth": 2},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,   "color": "blue"},
+          {"value": 1.5, "color": "orange"},
+          {"value": 2.5, "color": "red"}
+        ]}
+      }},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    }
+
+  ]
+}

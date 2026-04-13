@@ -1,0 +1,461 @@
+{
+  "title": "Sentinel Edge — Risk & Operations",
+  "uid": "se-risk-ops",
+  "tags": ["sentinel-edge", "risk", "ops", "circuit-breaker", "kill-switch"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-4h", "to": "now"},
+  "description": "Operational risk dashboard. Kill switch status, daily loss limits, circuit breakers, provider health, and retry queue. This is the 'is everything okay?' dashboard.",
+  "panels": [
+
+    {
+      "id": 900, "type": "row", "title": "Emergency Controls",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 1, "type": "stat",
+      "title": "KILL SWITCH",
+      "description": "0 = normal operation. 1 = KILL SWITCH ACTIVE — all trading immediately halted. Toggle via POST /api/emergency/kill-switch.",
+      "gridPos": {"x": 0, "y": 1, "w": 4, "h": 5},
+      "targets": [{"expr": "edge_kill_switch_active", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]},
+        "text": {"titleSize": 14, "valueSize": 36}
+      },
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "OFF — TRADING ACTIVE", "color": "green"}}},
+        {"type": "value", "options": {"1": {"text": "ENGAGED — ALL TRADING HALTED", "color": "red"}}}
+      ]}}
+    },
+    {
+      "id": 2, "type": "stat",
+      "title": "Engine Running",
+      "description": "Whether the core trading engine process is alive. Goes red immediately if the engine crashes.",
+      "gridPos": {"x": 4, "y": 1, "w": 3, "h": 3},
+      "targets": [{"expr": "edge_engine_running", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "STOPPED", "color": "red"}, "1": {"text": "RUNNING", "color": "green"}}}
+      ]}}
+    },
+    {
+      "id": 3, "type": "stat",
+      "title": "Market Open",
+      "description": "Is the US equities market currently in session?",
+      "gridPos": {"x": 7, "y": 1, "w": 3, "h": 3},
+      "targets": [{"expr": "sum(market_open_status)", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "CLOSED", "color": "red"}, "1": {"text": "OPEN", "color": "green"}}}
+      ]}}
+    },
+    {
+      "id": 4, "type": "stat",
+      "title": "Dry-Run / Simulate Mode",
+      "description": "When dry-run is ON, the engine evaluates all logic but never sends real orders. Safe for testing strategy changes without risking capital.",
+      "gridPos": {"x": 4, "y": 4, "w": 3, "h": 2},
+      "targets": [{"expr": "edge_dry_run_mode", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "LIVE TRADING", "color": "orange"}, "1": {"text": "DRY RUN (safe)", "color": "blue"}}}
+      ]}}
+    },
+    {
+      "id": 5, "type": "stat",
+      "title": "Dry-Run / Simulate Mode",
+      "description": "When dry-run is ON, the engine evaluates all logic but never sends real orders.",
+      "gridPos": {"x": 7, "y": 4, "w": 3, "h": 2},
+      "targets": [{"expr": "edge_dry_run_mode", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "LIVE TRADING", "color": "orange"}, "1": {"text": "DRY RUN", "color": "blue"}}}
+      ]}}
+    },
+
+    {
+      "id": 901, "type": "row", "title": "Loss Limits & Circuit Breakers",
+      "gridPos": {"x": 0, "y": 6, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 10, "type": "gauge",
+      "title": "Daily Loss — % of limit used",
+      "description": "The bot auto-pauses at 5% daily loss (configurable). This gauge shows how much of that limit has been consumed today. Green = healthy. Red = trading suspended.",
+      "gridPos": {"x": 0, "y": 7, "w": 6, "h": 6},
+      "targets": [{"expr": "(edge_daily_loss_pct / edge_daily_loss_limit_pct) * 100", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "decimals": 1,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "green"},
+          {"value": 60, "color": "yellow"},
+          {"value": 80, "color": "orange"},
+          {"value": 100, "color": "red"}
+        ]}
+      }}
+    },
+    {
+      "id": 11, "type": "stat",
+      "title": "Daily P&L ($)",
+      "description": "Net profit or loss for the current trading day. Resets at market open each morning.",
+      "gridPos": {"x": 6, "y": 7, "w": 4, "h": 3},
+      "targets": [{"expr": "edge_daily_pnl", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": -10000, "color": "red"},
+          {"value": 0,      "color": "orange"},
+          {"value": 1,      "color": "green"}
+        ]}
+      }}
+    },
+    {
+      "id": 12, "type": "stat",
+      "title": "Daily Loss Limit ($)",
+      "description": "Absolute dollar threshold at which the bot will suspend all trading for the day.",
+      "gridPos": {"x": 10, "y": 7, "w": 4, "h": 3},
+      "targets": [{"expr": "edge_daily_loss_limit_abs", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 0}}
+    },
+    {
+      "id": 13, "type": "stat",
+      "title": "Consecutive Loss Streak",
+      "description": "Number of consecutive losing trades. The circuit breaker pauses trading at 5 consecutive losses. Resets on first winning trade.",
+      "gridPos": {"x": 6, "y": 10, "w": 4, "h": 3},
+      "targets": [{"expr": "max(edge_consecutive_losses)", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+        {"value": 0, "color": "green"},
+        {"value": 3, "color": "yellow"},
+        {"value": 5, "color": "red"}
+      ]}}}
+    },
+    {
+      "id": 14, "type": "stat",
+      "title": "Circuit Breaker Active",
+      "description": "Fires when consecutive losses hit the threshold. Temporarily suspends new position entries. Existing positions continue to be managed.",
+      "gridPos": {"x": 10, "y": 10, "w": 4, "h": 3},
+      "targets": [{"expr": "edge_circuit_breaker_active", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "OK", "color": "green"}, "1": {"text": "TRIPPED", "color": "red"}}}
+      ]}}
+    },
+    {
+      "id": 15, "type": "timeseries",
+      "title": "Daily P&L trend",
+      "description": "Equity curve for today's session. A healthy day shows steady upward slope with controlled drawdowns.",
+      "gridPos": {"x": 14, "y": 7, "w": 10, "h": 6},
+      "targets": [
+        {"expr": "edge_daily_pnl",           "refId": "A", "legendFormat": "Net P&L ($)"},
+        {"expr": "edge_daily_loss_limit_abs * -1", "refId": "B", "legendFormat": "Loss limit (floor)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2, "custom": {"lineWidth": 2}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Loss limit (floor)"}, "properties": [
+            {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+            {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [6, 3]}},
+            {"id": "custom.lineWidth", "value": 1}
+          ]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+    },
+    {
+      "id": 16, "type": "timeseries",
+      "title": "Consecutive Loss Streak — history",
+      "description": "How the streak evolved over today's session. A spike that doesn't reset means positions kept losing. If this trends to 5, the circuit breaker will fire.",
+      "gridPos": {"x": 0, "y": 13, "w": 12, "h": 5},
+      "targets": [
+        {"expr": "max(edge_consecutive_losses)", "refId": "A", "legendFormat": "Streak"},
+        {"expr": "vector(5)",                    "refId": "B", "legendFormat": "Circuit breaker threshold"}
+      ],
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2, "fillOpacity": 10}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Circuit breaker threshold"}, "properties": [
+            {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+            {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [6, 3]}},
+            {"id": "custom.lineWidth", "value": 1}
+          ]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 17, "type": "timeseries",
+      "title": "Win Rate — rolling session",
+      "description": "Percentage of closed trades that were profitable, computed as a rolling average over the last hour. A healthy strategy stays above 50% over a meaningful sample size.",
+      "gridPos": {"x": 12, "y": 13, "w": 12, "h": 5},
+      "targets": [
+        {"expr": "avg(edge_win_rate) * 100",  "refId": "A", "legendFormat": "Win rate (%)"},
+        {"expr": "vector(50)",                "refId": "B", "legendFormat": "Break-even (50%)"},
+        {"expr": "vector(65)",                "refId": "C", "legendFormat": "Target (65%)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent", "custom": {"lineWidth": 2}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Break-even (50%)"}, "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}, {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [6, 3]}}]},
+          {"matcher": {"id": "byName", "options": "Target (65%)"},     "properties": [{"id": "color", "value": {"fixedColor": "green",  "mode": "fixed"}}, {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [6, 3]}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+
+    {
+      "id": 902, "type": "row", "title": "Provider Health & Price Feed Status",
+      "gridPos": {"x": 0, "y": 18, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 20, "type": "stat",
+      "title": "Active Price Provider",
+      "description": "Which provider is currently serving price data. Polygon is primary; Finnhub is secondary; yFinance is emergency fallback.",
+      "gridPos": {"x": 0, "y": 19, "w": 6, "h": 3},
+      "targets": [{"expr": "edge_active_provider", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {
+          "0": {"text": "Polygon (primary)", "color": "green"},
+          "1": {"text": "Finnhub (secondary)", "color": "yellow"},
+          "2": {"text": "yFinance (fallback)", "color": "orange"}
+        }}
+      ]}}
+    },
+    {
+      "id": 21, "type": "stat",
+      "title": "Provider Failovers",
+      "description": "How many times the bot has had to switch from primary to a backup provider today. Frequent failovers suggest instability in Polygon or Finnhub.",
+      "gridPos": {"x": 6, "y": 19, "w": 4, "h": 3},
+      "targets": [{"expr": "sum(increase(edge_provider_failover_total[1d]))", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [
+        {"value": 0, "color": "green"},
+        {"value": 3, "color": "yellow"},
+        {"value": 10, "color": "red"}
+      ]}}}
+    },
+    {
+      "id": 22, "type": "stat",
+      "title": "WebSocket Connected",
+      "description": "Whether the real-time price streaming WebSocket is connected. 0 = disconnected (bot falls back to polling, higher latency).",
+      "gridPos": {"x": 10, "y": 19, "w": 4, "h": 3},
+      "targets": [{"expr": "edge_websocket_connected", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "DISCONNECTED", "color": "red"}, "1": {"text": "CONNECTED", "color": "green"}}}
+      ]}}
+    },
+    {
+      "id": 23, "type": "timeseries",
+      "title": "Provider Latency — p99 by provider",
+      "description": "How long each price provider takes to respond to a quote request at the 99th percentile. Polygon should be < 100ms. Finnhub < 250ms. yFinance < 1s.",
+      "gridPos": {"x": 0, "y": 22, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "histogram_quantile(0.99, rate(edge_provider_latency_seconds_bucket[5m])) by (provider)", "refId": "A", "legendFormat": "p99 — {{provider}}"},
+        {"expr": "histogram_quantile(0.50, rate(edge_provider_latency_seconds_bucket[5m])) by (provider)", "refId": "B", "legendFormat": "p50 — {{provider}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"lineWidth": 2},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,    "color": "green"},
+          {"value": 0.25, "color": "yellow"},
+          {"value": 1.0,  "color": "red"}
+        ]}
+      }},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"]}}
+    },
+    {
+      "id": 24, "type": "timeseries",
+      "title": "Provider Error Rate",
+      "description": "Rate of failed price fetch attempts per provider. Non-zero Polygon errors for more than 1 minute should prompt investigation — the bot is degraded.",
+      "gridPos": {"x": 12, "y": 22, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "sum(rate(edge_provider_errors_total[5m])) by (provider)", "refId": "A", "legendFormat": "{{provider}}"}
+      ],
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "lineWidth": 2},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,    "color": "green"},
+          {"value": 0.01, "color": "yellow"},
+          {"value": 0.05, "color": "red"}
+        ]}
+      }},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"]}}
+    },
+    {
+      "id": 25, "type": "table",
+      "title": "Provider Health Summary",
+      "description": "Snapshot of each provider's current status, latency, and error count.",
+      "gridPos": {"x": 14, "y": 19, "w": 10, "h": 3},
+      "targets": [
+        {"expr": "edge_provider_healthy",         "refId": "A", "format": "table", "instant": true},
+        {"expr": "edge_provider_last_latency_ms", "refId": "B", "format": "table", "instant": true}
+      ],
+      "transformations": [
+        {"id": "merge"},
+        {"id": "organize", "options": {"renameByName": {"provider": "Provider", "Value #A": "Healthy", "Value #B": "Last Latency (ms)"}}}
+      ],
+      "fieldConfig": {"overrides": [
+        {"matcher": {"id": "byName", "options": "Healthy"}, "properties": [
+          {"id": "custom.displayMode", "value": "color-background"},
+          {"id": "mappings", "value": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "OK", "color": "green"}}}]}
+        ]}
+      ]}
+    },
+
+    {
+      "id": 903, "type": "row", "title": "Retry Queue & Decision Throughput",
+      "gridPos": {"x": 0, "y": 28, "w": 24, "h": 1},
+      "collapsed": false
+    },
+
+    {
+      "id": 30, "type": "stat",
+      "title": "Retry Queue Depth",
+      "description": "Number of pending decision retries waiting to be processed. Grows when brokers are slow or rejecting orders. Sustained >20 = investigate broker connectivity.",
+      "gridPos": {"x": 0, "y": 29, "w": 4, "h": 4},
+      "targets": [{"expr": "edge_retry_queue_depth", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+        {"value": 0,  "color": "green"},
+        {"value": 5,  "color": "yellow"},
+        {"value": 20, "color": "red"}
+      ]}}}
+    },
+    {
+      "id": 31, "type": "stat",
+      "title": "Total Retries Today",
+      "description": "Cumulative retry attempts since market open. A small number is expected; a large number relative to total decisions indicates systematic execution issues.",
+      "gridPos": {"x": 4, "y": 29, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(increase(edge_retry_total[1d]))", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 32, "type": "stat",
+      "title": "Decisions — Rate/min",
+      "description": "How many decision events (BUY/SELL/HOLD/SKIP) the engine is processing per minute. Low rate during open hours may indicate the scheduler is stuck.",
+      "gridPos": {"x": 8, "y": 29, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(rate(edge_decision_total[1m])) * 60", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 33, "type": "stat",
+      "title": "Pulse Overrides Sent",
+      "description": "How many analyst-to-engine override commands have been dispatched. A pulse override can force a buy, force an exit, or override signal thresholds for a specific ticker.",
+      "gridPos": {"x": 12, "y": 29, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(analyst_pulse_overrides_total)", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 34, "type": "timeseries",
+      "title": "Retry Queue over time",
+      "description": "A healthy queue stays near zero. A growing queue that doesn't drain = execution backlog. Check broker API logs if this exceeds 20 for more than 5 minutes.",
+      "gridPos": {"x": 16, "y": 29, "w": 8, "h": 4},
+      "targets": [
+        {"expr": "edge_retry_queue_depth", "refId": "A", "legendFormat": "Queue depth"}
+      ],
+      "fieldConfig": {"defaults": {"min": 0, "custom": {"fillOpacity": 20, "lineWidth": 2},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "green"},
+          {"value": 5,  "color": "yellow"},
+          {"value": 20, "color": "red"}
+        ]}
+      }},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 35, "type": "timeseries",
+      "title": "Decision breakdown — rate/5m",
+      "description": "Proportion of each decision type over time. A well-tuned strategy has mostly HOLD, periodic BUY/SELL, and rare SKIP. Too many SKIPs = signal threshold too high. Too many BUYs = overtrading.",
+      "gridPos": {"x": 0, "y": 33, "w": 14, "h": 6},
+      "targets": [
+        {"expr": "sum(rate(edge_decision_total[5m])) by (decision)", "refId": "A", "legendFormat": "{{decision}}"}
+      ],
+      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 10, "lineWidth": 2, "stacking": {"mode": "none"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "sum"]}}
+    },
+    {
+      "id": 36, "type": "timeseries",
+      "title": "Signal Latency — analyst processing time",
+      "description": "Time from market data received → signal score computed. p99 above 500ms means the bot is processing signals slower than the market is moving. Check CPU and Python async loop.",
+      "gridPos": {"x": 14, "y": 33, "w": 10, "h": 6},
+      "targets": [
+        {"expr": "histogram_quantile(0.99, rate(analyst_signal_latency_seconds_bucket[5m]))", "refId": "A", "legendFormat": "p99"},
+        {"expr": "histogram_quantile(0.95, rate(analyst_signal_latency_seconds_bucket[5m]))", "refId": "B", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.50, rate(analyst_signal_latency_seconds_bucket[5m]))", "refId": "C", "legendFormat": "p50"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"lineWidth": 2},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,   "color": "green"},
+          {"value": 0.1, "color": "yellow"},
+          {"value": 0.5, "color": "red"}
+        ]}
+      }},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"]}}
+    },
+
+    {
+      "id": 904, "type": "row", "title": "Monte Carlo Risk Summary",
+      "gridPos": {"x": 0, "y": 39, "w": 24, "h": 1},
+      "collapsed": true
+    },
+
+    {
+      "id": 40, "type": "stat",
+      "title": "VaR — 5th Percentile Outcome",
+      "description": "Value at Risk: in the worst 5% of Monte Carlo simulations run against recent strategy performance, this is the equity endpoint. If negative, you could lose this much. Updated on each backtest run.",
+      "gridPos": {"x": 0, "y": 40, "w": 6, "h": 4},
+      "targets": [{"expr": "edge_monte_carlo_var_5pct", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": -10000, "color": "red"},
+          {"value": -500,   "color": "orange"},
+          {"value": 0,      "color": "green"}
+        ]}
+      }}
+    },
+    {
+      "id": 41, "type": "gauge",
+      "title": "Probability of Profit (Monte Carlo)",
+      "description": "Out of the last Monte Carlo simulation batch, what percentage of simulation runs ended profitably. Below 50% is a warning sign.",
+      "gridPos": {"x": 6, "y": 40, "w": 6, "h": 4},
+      "targets": [{"expr": "edge_monte_carlo_profit_prob * 100", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "red"},
+          {"value": 50, "color": "yellow"},
+          {"value": 65, "color": "green"}
+        ]}
+      }}
+    },
+    {
+      "id": 42, "type": "stat",
+      "title": "Median Final Equity (Monte Carlo)",
+      "description": "The 50th percentile outcome across all Monte Carlo simulation runs. This is the 'expected' equity endpoint under the current strategy parameters.",
+      "gridPos": {"x": 12, "y": 40, "w": 6, "h": 4},
+      "targets": [{"expr": "edge_monte_carlo_median_equity", "refId": "A"}],
+      "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2}}
+    },
+    {
+      "id": 43, "type": "stat",
+      "title": "Mean Max Drawdown (Monte Carlo)",
+      "description": "Average peak-to-trough loss across all simulation runs. This tells you how painful the ride is likely to be even in profitable scenarios.",
+      "gridPos": {"x": 18, "y": 40, "w": 6, "h": 4},
+      "targets": [{"expr": "edge_monte_carlo_mean_drawdown * 100", "refId": "A"}],
+      "options": {"graphMode": "none", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"value": 0,  "color": "green"},
+          {"value": 10, "color": "yellow"},
+          {"value": 20, "color": "red"}
+        ]}
+      }}
+    }
+
+  ]
+}

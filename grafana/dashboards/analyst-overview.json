@@ -1,132 +1,1724 @@
 {
-  "title": "Sentinel Edge — Analyst Overview",
+  "title": "Sentinel Edge \u2014 Analyst Overview",
   "uid": "se-analyst-overview",
-  "tags": ["sentinel-edge", "analyst", "orb"],
+  "tags": [
+    "sentinel-edge",
+    "analyst",
+    "orb"
+  ],
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 3,
+  "version": 4,
   "refresh": "5s",
-  "time": {"from": "now-1h", "to": "now"},
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "symbol",
+        "label": "Symbol",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus"
+        },
+        "query": "label_values(edge_signal_strength, symbol)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "timeframe",
+        "label": "ORB Timeframe",
+        "type": "custom",
+        "options": [
+          {
+            "text": "5m",
+            "value": "5m"
+          },
+          {
+            "text": "15m",
+            "value": "15m",
+            "selected": true
+          },
+          {
+            "text": "30m",
+            "value": "30m"
+          }
+        ],
+        "current": {
+          "text": "15m",
+          "value": "15m"
+        }
+      }
+    ]
+  },
   "panels": [
     {
-      "id": 1, "type": "stat",
-      "title": "Market Breadth & Correlation Clusters",
-      "description": "Total correlation clusters detected across all directions and strengths",
-      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
-      "targets": [{"expr": "sum(analyst_correlation_clusters_total)", "refId": "A", "legendFormat": "Clusters"}],
-      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 3, "color": "yellow"}, {"value": 7, "color": "red"}]}}}
+      "id": 900,
+      "type": "row",
+      "title": "Engine Health",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
     },
     {
-      "id": 2, "type": "stat", "title": "Engine Status",
-      "gridPos": {"x": 6, "y": 0, "w": 4, "h": 4},
-      "targets": [{"expr": "edge_engine_running", "refId": "A"}],
-      "options": {"graphMode": "none", "colorMode": "background"},
-      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "STOPPED", "color": "red"}, "1": {"text": "RUNNING", "color": "green"}}}]}}
-    },
-    {
-      "id": 3, "type": "stat", "title": "Active Tickers",
-      "gridPos": {"x": 10, "y": 0, "w": 4, "h": 4},
-      "targets": [{"expr": "ticker_active_count", "refId": "A"}],
-      "options": {"graphMode": "area", "colorMode": "value"}
-    },
-    {
-      "id": 4, "type": "gauge", "title": "Win Rate %",
-      "gridPos": {"x": 14, "y": 0, "w": 5, "h": 4},
-      "targets": [{"expr": "avg(edge_win_rate)", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 50, "color": "yellow"}, {"value": 70, "color": "green"}]}}}
-    },
-    {
-      "id": 5, "type": "stat", "title": "Total Decisions",
-      "gridPos": {"x": 19, "y": 0, "w": 5, "h": 4},
-      "targets": [{"expr": "sum(edge_decision_total)", "refId": "A"}],
-      "options": {"graphMode": "area", "colorMode": "value"}
-    },
-    {
-      "id": 10, "type": "timeseries",
-      "title": "ORB Breakouts (Last 15m)",
-      "description": "Rate of ORB breakouts per symbol and direction — 5-minute rolling window",
-      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "id": 2,
+      "type": "stat",
+      "title": "Engine Status",
+      "description": "1 = RUNNING, 0 = STOPPED. Turns red immediately if the engine process exits.",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
       "targets": [
-        {"expr": "rate(analyst_orb_breakouts_total[5m])", "refId": "A", "legendFormat": "{{symbol}} {{direction}} {{timeframe}}"},
-        {"expr": "rate(edge_orb_breakouts_total[5m])", "refId": "B", "legendFormat": "edge: {{symbol}} {{direction}}"}
+        {
+          "expr": "edge_engine_running",
+          "refId": "A"
+        }
       ],
-      "options": {"legend": {"displayMode": "table", "placement": "right"}},
-      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "lineWidth": 2}}}
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "STOPPED",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "RUNNING",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        }
+      }
     },
     {
-      "id": 11, "type": "timeseries", "title": "Signal Strength by Ticker",
-      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
-      "targets": [{"expr": "edge_signal_strength", "refId": "A", "legendFormat": "{{symbol}}"}],
-      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "gradientMode": "hue", "lineWidth": 2}}},
-      "options": {"legend": {"displayMode": "table", "placement": "right"}}
-    },
-    {
-      "id": 20, "type": "heatmap",
-      "title": "ATR Values",
-      "description": "ATR heatmap per symbol — higher ATR = wider trailing stops",
-      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "id": 52,
+      "type": "stat",
+      "title": "Markets Open",
+      "description": "Count of markets currently in session. 0 = pre/post market.",
+      "gridPos": {
+        "x": 3,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
       "targets": [
-        {"expr": "analyst_atr_value", "refId": "A", "legendFormat": "{{symbol}}"},
-        {"expr": "edge_atr_value", "refId": "B", "legendFormat": "{{symbol}}"}
+        {
+          "expr": "sum(market_open_status)",
+          "refId": "A"
+        }
       ],
-      "options": {"calculate": false, "color": {"mode": "scheme", "scheme": "Spectral", "steps": 128}, "cellGap": 1, "yAxis": {"axisLabel": "Symbol"}},
-      "fieldConfig": {"defaults": {"custom": {"hideFrom": {"legend": false, "tooltip": false, "viz": false}}}}
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "CLOSED",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "OPEN",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        }
+      }
     },
     {
-      "id": 21, "type": "timeseries", "title": "Volume Ratio",
-      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
-      "targets": [{"expr": "edge_volume_ratio", "refId": "A", "legendFormat": "{{symbol}}"}],
-      "fieldConfig": {"defaults": {"custom": {"fillOpacity": 10}, "thresholds": {"steps": [{"value": 1.5, "color": "orange"}, {"value": 2.5, "color": "red"}]}}}
-    },
-    {
-      "id": 30, "type": "timeseries", "title": "Analyst Signal Latency (p99)",
-      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 6},
+      "id": 3,
+      "type": "stat",
+      "title": "Active Tickers",
+      "description": "Number of symbols currently being evaluated by the scheduler.",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
       "targets": [
-        {"expr": "histogram_quantile(0.99, rate(analyst_signal_latency_seconds_bucket[5m]))", "refId": "A", "legendFormat": "p99"},
-        {"expr": "histogram_quantile(0.50, rate(analyst_signal_latency_seconds_bucket[5m]))", "refId": "B", "legendFormat": "p50"}
+        {
+          "expr": "ticker_active_count",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 0.1, "color": "yellow"}, {"value": 0.5, "color": "red"}]}}}
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
-      "id": 31, "type": "timeseries", "title": "Decisions by Type",
-      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 6},
-      "targets": [{"expr": "sum(rate(edge_decision_total[5m])) by (decision)", "refId": "A", "legendFormat": "{{decision}}"}],
-      "options": {"legend": {"displayMode": "table", "placement": "right"}}
-    },
-    {
-      "id": 40, "type": "table", "title": "Live Ticker State",
-      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 7},
+      "id": 5,
+      "type": "stat",
+      "title": "Total Decisions",
+      "description": "Cumulative decision events fired since engine start.",
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
       "targets": [
-        {"expr": "current_price", "refId": "A", "format": "table", "instant": true},
-        {"expr": "edge_signal_strength", "refId": "B", "format": "table", "instant": true},
-        {"expr": "edge_orb_high{timeframe=\"15m\"}", "refId": "C", "format": "table", "instant": true},
-        {"expr": "edge_orb_low{timeframe=\"15m\"}", "refId": "D", "format": "table", "instant": true},
-        {"expr": "analyst_atr_value", "refId": "E", "format": "table", "instant": true},
-        {"expr": "edge_volume_ratio", "refId": "F", "format": "table", "instant": true}
+        {
+          "expr": "sum(edge_decision_total)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "gauge",
+      "title": "Win Rate %",
+      "description": "Percentage of closed trades that were profitable. Target: >55%.",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "avg(edge_win_rate) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 40,
+                "color": "orange"
+              },
+              {
+                "value": 55,
+                "color": "yellow"
+              },
+              {
+                "value": 65,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Consecutive Loss Streak",
+      "description": "Max losing trades in a row. Circuit breaker triggers at 5.",
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "max(edge_consecutive_losses)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 3,
+                "color": "yellow"
+              },
+              {
+                "value": 5,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "Pulse Overrides Sent",
+      "description": "Total analyst-to-engine override commands dispatched this session.",
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(analyst_pulse_overrides_total)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 901,
+      "type": "row",
+      "title": "Candlestick & Pattern Events",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 60,
+      "type": "timeseries",
+      "title": "Candlestick Pattern Events by Type",
+      "description": "Rate of detected candle patterns per 5-minute window. Engulfing and hammer patterns near ORB levels are strongest signals.",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(analyst_candle_pattern_total[5m])) by (pattern, direction)",
+          "refId": "A",
+          "legendFormat": "{{pattern}} {{direction}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 12,
+            "lineWidth": 2,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 61,
+      "type": "stat",
+      "title": "Bullish Patterns (last 5m)",
+      "description": "Count of bullish candle formations detected in the last 5 minutes across all symbols.",
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(analyst_candle_pattern_total{direction=\"bullish\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 62,
+      "type": "stat",
+      "title": "Bearish Patterns (last 5m)",
+      "description": "Count of bearish candle formations detected in the last 5 minutes across all symbols.",
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(analyst_candle_pattern_total{direction=\"bearish\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 63,
+      "type": "stat",
+      "title": "Doji / Indecision (last 5m)",
+      "description": "Doji candles signal market indecision. High counts during key levels \u2192 bot reduces position sizing.",
+      "gridPos": {
+        "x": 20,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(analyst_candle_pattern_total{pattern=\"doji\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 64,
+      "type": "table",
+      "title": "Pattern Leaderboard",
+      "description": "Most frequently detected patterns this hour, ranked by count.",
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(analyst_candle_pattern_total[1h])) by (pattern, direction, symbol)",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
       ],
       "transformations": [
-        {"id": "merge"},
-        {"id": "organize", "options": {"renameByName": {"symbol": "Ticker", "Value #A": "Price", "Value #B": "Signal", "Value #C": "ORB High 15m", "Value #D": "ORB Low 15m", "Value #E": "ATR", "Value #F": "Vol Ratio"}}}
-      ]
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": [
+              {
+                "displayName": "Value",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "pattern": "Pattern",
+              "direction": "Direction",
+              "symbol": "Ticker",
+              "Value": "Count (1h)"
+            }
+          }
+        }
+      ],
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Count (1h)",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "displayMode": "auto"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "text"
+              }
+            ]
+          }
+        }
+      }
     },
     {
-      "id": 50, "type": "stat", "title": "Pulse Overrides Sent",
-      "gridPos": {"x": 0, "y": 33, "w": 8, "h": 4},
-      "targets": [{"expr": "sum(analyst_pulse_overrides_total)", "refId": "A"}],
-      "options": {"graphMode": "area", "colorMode": "value"}
+      "id": 902,
+      "type": "row",
+      "title": "ORB Breakout Analysis",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
     },
     {
-      "id": 51, "type": "stat", "title": "Consecutive Loss Streak",
-      "gridPos": {"x": 8, "y": 33, "w": 8, "h": 4},
-      "targets": [{"expr": "max(edge_consecutive_losses)", "refId": "A"}],
-      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 3, "color": "yellow"}, {"value": 5, "color": "red"}]}}}
+      "id": 10,
+      "type": "timeseries",
+      "title": "ORB Breakout Rate \u2014 $timeframe window",
+      "description": "Rate of ORB breakouts per symbol and direction. A spike here means the bot just detected a valid range break and is evaluating entry.",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 14,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(analyst_orb_breakouts_total{timeframe=~\"$timeframe\"}[5m])",
+          "refId": "A",
+          "legendFormat": "analyst: {{symbol}} {{direction}}"
+        },
+        {
+          "expr": "rate(edge_orb_breakouts_total{timeframe=~\"$timeframe\"}[5m])",
+          "refId": "B",
+          "legendFormat": "engine: {{symbol}} {{direction}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 15,
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
-      "id": 52, "type": "stat", "title": "Markets Open",
-      "gridPos": {"x": 16, "y": 33, "w": 8, "h": 4},
-      "targets": [{"expr": "sum(market_open_status)", "refId": "A"}],
-      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}}}
+      "id": 70,
+      "type": "stat",
+      "title": "ORB Breakouts Today",
+      "description": "Total confirmed ORB breakout events since midnight.",
+      "gridPos": {
+        "x": 14,
+        "y": 15,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(analyst_orb_breakouts_total[1d]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 71,
+      "type": "gauge",
+      "title": "ORB Breakout Success Rate",
+      "description": "% of ORB breakouts that resulted in a profitable trade. Higher = strategy is working.",
+      "gridPos": {
+        "x": 19,
+        "y": 15,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "avg(edge_orb_success_rate) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 45,
+                "color": "yellow"
+              },
+              {
+                "value": 60,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 72,
+      "type": "table",
+      "title": "ORB Level State \u2014 $timeframe",
+      "description": "Live ORB high/low and whether price is currently above, inside, or below the range for each symbol.",
+      "gridPos": {
+        "x": 14,
+        "y": 19,
+        "w": 10,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "edge_orb_high{timeframe=~\"$timeframe\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "edge_orb_low{timeframe=~\"$timeframe\"}",
+          "refId": "B",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "current_price",
+          "refId": "C",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "symbol": "Ticker",
+              "Value #A": "ORB High",
+              "Value #B": "ORB Low",
+              "Value #C": "Price"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ORB High"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ORB Low"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Price"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 903,
+      "type": "row",
+      "title": "Signal Strength & Momentum Indicators",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Composite Signal Strength by Ticker",
+      "description": "0\u2013100 score. Above 60 = bot considers entry. Below 30 = defensive. Hover a line to see the ticker's current score.",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "edge_signal_strength{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "legendFormat": "{{symbol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "fillOpacity": 12,
+            "gradientMode": "hue",
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 30,
+                "color": "orange"
+              },
+              {
+                "value": 60,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max",
+            "min"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 80,
+      "type": "timeseries",
+      "title": "RSI by Ticker",
+      "description": "Relative Strength Index. Above 70 = overbought (potential reversal). Below 30 = oversold (potential bounce). The engine uses this as one component of signal scoring.",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "edge_rsi{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "legendFormat": "{{symbol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 5,
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "super-light-blue"
+              },
+              {
+                "value": 30,
+                "color": "green"
+              },
+              {
+                "value": 70,
+                "color": "orange"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 81,
+      "type": "timeseries",
+      "title": "MACD \u2014 Line vs Signal",
+      "description": "When MACD line crosses above the signal line \u2192 bullish momentum. Below \u2192 bearish. Histogram shows the gap between them.",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "expr": "edge_macd_line{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "legendFormat": "MACD {{symbol}}"
+        },
+        {
+          "expr": "edge_macd_signal{symbol=~\"$symbol\"}",
+          "refId": "B",
+          "legendFormat": "Signal {{symbol}}"
+        },
+        {
+          "expr": "edge_macd_histogram{symbol=~\"$symbol\"}",
+          "refId": "C",
+          "legendFormat": "Histogram {{symbol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 82,
+      "type": "timeseries",
+      "title": "Price vs VWAP Deviation %",
+      "description": "% distance between current price and VWAP. Positive = price above VWAP (bullish). Negative = below VWAP (bearish). Institutional traders treat VWAP as fair value.",
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "expr": "(current_price{symbol=~\"$symbol\"} - edge_vwap{symbol=~\"$symbol\"}) / edge_vwap{symbol=~\"$symbol\"} * 100",
+          "refId": "A",
+          "legendFormat": "{{symbol}} vs VWAP"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": -2,
+                "color": "red"
+              },
+              {
+                "value": 0,
+                "color": "yellow"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 904,
+      "type": "row",
+      "title": "ATR, Trailing Stop & Volatility",
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "ATR Value by Symbol",
+      "description": "Average True Range \u2014 measures per-candle volatility in dollars. Higher ATR = wider trailing stops and larger position sizing adjustments.",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "analyst_atr_value{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "legendFormat": "analyst: {{symbol}}"
+        },
+        {
+          "expr": "edge_atr_value{symbol=~\"$symbol\"}",
+          "refId": "B",
+          "legendFormat": "engine: {{symbol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 83,
+      "type": "timeseries",
+      "title": "Trailing Stop Distance ($)",
+      "description": "Distance in dollars between current price and the active trailing stop. When this hits 0 \u2192 the stop is triggered and the bot exits the position.",
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "edge_trailing_stop_distance{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "legendFormat": "{{symbol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "min": 0,
+          "custom": {
+            "fillOpacity": 15,
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 0.5,
+                "color": "yellow"
+              },
+              {
+                "value": 2,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "min"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Volume Ratio by Ticker",
+      "description": "Current volume vs average volume. >1.5 = elevated activity (confirms breakouts). >2.5 = extreme volume surge (high conviction signal).",
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "expr": "edge_volume_ratio{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "legendFormat": "{{symbol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "blue"
+              },
+              {
+                "value": 1.5,
+                "color": "orange"
+              },
+              {
+                "value": 2.5,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 84,
+      "type": "heatmap",
+      "title": "ATR Heatmap \u2014 volatility across symbols over time",
+      "description": "Warm colors = high ATR (volatile). Cool = calm. Use this to spot which symbols are heating up before checking signal strength.",
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "expr": "analyst_atr_value{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "legendFormat": "{{symbol}}"
+        },
+        {
+          "expr": "edge_atr_value{symbol=~\"$symbol\"}",
+          "refId": "B",
+          "legendFormat": "{{symbol}}"
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Spectral",
+          "steps": 128,
+          "reverse": true
+        },
+        "cellGap": 1,
+        "yAxis": {
+          "axisLabel": "Symbol",
+          "unit": "currencyUSD"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 905,
+      "type": "row",
+      "title": "Live Ticker State",
+      "gridPos": {
+        "x": 0,
+        "y": 55,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 40,
+      "type": "table",
+      "title": "Live Ticker State \u2014 All Symbols",
+      "description": "Snapshot of every metric for every active ticker. Refreshes every 5s. Click a ticker row to open a dedicated symbol drilldown.",
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "current_price{symbol=~\"$symbol\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "edge_signal_strength{symbol=~\"$symbol\"}",
+          "refId": "B",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "edge_orb_high{timeframe=~\"$timeframe\", symbol=~\"$symbol\"}",
+          "refId": "C",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "edge_orb_low{timeframe=~\"$timeframe\", symbol=~\"$symbol\"}",
+          "refId": "D",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "analyst_atr_value{symbol=~\"$symbol\"}",
+          "refId": "E",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "edge_volume_ratio{symbol=~\"$symbol\"}",
+          "refId": "F",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "edge_rsi{symbol=~\"$symbol\"}",
+          "refId": "G",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "edge_trailing_stop_distance{symbol=~\"$symbol\"}",
+          "refId": "H",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "symbol": "Ticker",
+              "Value #A": "Price",
+              "Value #B": "Signal",
+              "Value #C": "ORB High",
+              "Value #D": "ORB Low",
+              "Value #E": "ATR",
+              "Value #F": "Vol Ratio",
+              "Value #G": "RSI",
+              "Value #H": "Stop Dist $"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": [
+              {
+                "displayName": "Signal",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "displayMode": "auto"
+          },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Signal"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "value": 0,
+                      "color": "red"
+                    },
+                    {
+                      "value": 30,
+                      "color": "orange"
+                    },
+                    {
+                      "value": 60,
+                      "color": "green"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RSI"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "value": 0,
+                      "color": "super-light-blue"
+                    },
+                    {
+                      "value": 30,
+                      "color": "green"
+                    },
+                    {
+                      "value": 70,
+                      "color": "orange"
+                    },
+                    {
+                      "value": 80,
+                      "color": "red"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Price"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ORB High"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ORB Low"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ATR"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stop Dist $"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 906,
+      "type": "row",
+      "title": "System Performance",
+      "gridPos": {
+        "x": 0,
+        "y": 65,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Analyst Signal Latency",
+      "description": "Time from price tick received to signal score computed. p99 > 500ms = the analyst is falling behind real-time data.",
+      "gridPos": {
+        "x": 0,
+        "y": 66,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(analyst_signal_latency_seconds_bucket[5m]))",
+          "refId": "A",
+          "legendFormat": "p99"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(analyst_signal_latency_seconds_bucket[5m]))",
+          "refId": "B",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(analyst_signal_latency_seconds_bucket[5m]))",
+          "refId": "C",
+          "legendFormat": "p50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 0.1,
+                "color": "yellow"
+              },
+              {
+                "value": 0.5,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Decisions by Type (rate/5m)",
+      "description": "Breakdown of decision events: BUY, SELL, HOLD, SKIP. A healthy run shows mostly HOLD with periodic BUY/SELL.",
+      "gridPos": {
+        "x": 12,
+        "y": 66,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(edge_decision_total[5m])) by (decision)",
+          "refId": "A",
+          "legendFormat": "{{decision}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 85,
+      "type": "timeseries",
+      "title": "Market Breadth \u2014 Correlation Clusters",
+      "description": "Number of symbol clusters showing correlated movement. High cluster count = broad market move (not symbol-specific). Low = scattered/selective action.",
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "sum(analyst_correlation_clusters_total)",
+          "refId": "A",
+          "legendFormat": "Clusters"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 15,
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 3,
+                "color": "yellow"
+              },
+              {
+                "value": 7,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 86,
+      "type": "timeseries",
+      "title": "Retry Queue Depth",
+      "description": "Pending decisions waiting for retry. A growing queue means the engine is producing decisions faster than brokers can process them.",
+      "gridPos": {
+        "x": 12,
+        "y": 72,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "edge_retry_queue_depth",
+          "refId": "A",
+          "legendFormat": "Queue depth"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 15,
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 5,
+                "color": "yellow"
+              },
+              {
+                "value": 20,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
     }
   ]
 }

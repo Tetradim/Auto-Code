@@ -269,3 +269,124 @@ edge_info.info({
     'name': 'Sentinel Edge',
     'description': 'Trading analyst sidecar for Sentinel Pulse'
 })
+
+# ═══════════════════════════════════════════════════════════
+# PRODUCTION SAFEGUARDS METRICS
+# ═══════════════════════════════════════════════════════════
+
+global_kill_switch = Gauge(
+    "edge_kill_switch_active",
+    "Global kill switch status: 0=OFF, 1=ON",
+)
+
+daily_loss_limit_triggered = Gauge(
+    "edge_daily_loss_limit_triggered",
+    "Daily loss limit triggered: 0=OK, 1=TRIGGERED",
+)
+
+circuit_breaker_state = Gauge(
+    "edge_circuit_breaker_state",
+    "Circuit breaker per provider: 0=CLOSED, 1=HALF_OPEN, 2=OPEN",
+    ["provider"]
+)
+
+circuit_breaker_failures = Counter(
+    "edge_circuit_breaker_failures_total",
+    "Total circuit breaker failures",
+    ["provider"]
+)
+
+# ═══════════════════════════════════════════════════════════
+# PROVIDER HEALTH METRICS
+# ═══════════════════════════════════════════════════════════
+
+provider_health_status = Gauge(
+    "edge_provider_health_status",
+    "Provider health status: 0=UNKNOWN, 1=HEALTHY, 2=DEGRADED, 3=FAILED",
+    ["provider"]
+)
+
+provider_latency_ms = Gauge(
+    "edge_provider_latency_ms",
+    "Provider latency in milliseconds",
+    ["provider"]
+)
+
+provider_requests_total = Counter(
+    "edge_provider_requests_total",
+    "Total requests to provider",
+    ["provider", "status"]
+)
+
+# ═══════════════════════════════════════════════════════════
+# RETRY QUEUE METRICS
+# ═══════════════════════════════════════════════════════════
+
+retry_queue_depth = Gauge(
+    "edge_retry_queue_depth",
+    "Current depth of retry queue",
+    ["priority"]
+)
+
+retry_queue_processed = Counter(
+    "edge_retry_queue_processed_total",
+    "Total items processed from retry queue",
+    ["priority", "result"]
+)
+
+retry_queue_age_seconds = Gauge(
+    "edge_retry_queue_age_seconds",
+    "Age of oldest item in retry queue",
+    ["priority"]
+)
+
+# ═══════════════════════════════════════════════════════════
+# BACKTEST METRICS
+# ═══════════════════════════════════════════════════════════
+
+backtest_runs_total = Counter(
+    "edge_backtest_runs_total",
+    "Total backtest runs",
+    ["symbol"]
+)
+
+backtest_duration_seconds = Histogram(
+    "edge_backtest_duration_seconds",
+    "Backtest execution duration",
+    ["symbol"],
+    buckets=[1, 5, 10, 30, 60, 120, 300]
+)
+
+backtest_return_pct = Gauge(
+    "edge_backtest_return_pct",
+    "Backtest return percentage",
+    ["symbol"]
+)
+
+monte_carlo_probability_profit = Gauge(
+    "edge_monte_carlo_probability_profit",
+    "Monte Carlo probability of profit",
+    ["symbol"]
+)
+
+# ═══════════════════════════════════════════════════════════
+# STRATEGY OPTIMIZATION METRICS
+# ═══════════════════════════════════════════════════════════
+
+optimization_runs_total = Counter(
+    "edge_optimization_runs_total",
+    "Total optimization runs",
+    ["symbol"]
+)
+
+optimization_best_score = Gauge(
+    "edge_optimization_best_score",
+    "Best optimization score",
+    ["symbol"]
+)
+
+strategy_versions_total = Gauge(
+    "edge_strategy_versions_total",
+    "Total strategy versions stored",
+    ["strategy"]
+)
