@@ -1,0 +1,111 @@
+{
+  "title": "1. Sentinel - Mission Control (Beginner)",
+  "uid": "sentinel-mission-control",
+  "tags": ["sentinel-edge", "beginner"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row", "title": "ROW 1: IS THE BOT ALIVE?", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}
+    },
+    {
+      "id": 1, "type": "stat", "title": "Bot Heartbeat",
+      "gridPos": {"x": 0, "y": 1, "w": 4, "h": 4},
+      "description": "Green = Bot is awake and connected to exchange. Red = It's off or crashed. This is your #1 check.",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_edge_up", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "OFFLINE 🔴"}, "1": {"text": "ONLINE ✅"}}}], "thresholds": {"steps": [{"color": "red"}, {"color": "green", "value": 1}]}}},
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Current Mode",
+      "gridPos": {"x": 4, "y": 1, "w": 8, "h": 4},
+      "description": "What it's doing RIGHT NOW. COOLDOWN = 'I just lost, I'm taking a break so I don't revenge-trade.' This is a FEATURE.",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_current_state", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "SCANNING 👀"}, "1": {"text": "IN LONG 📈"}, "2": {"text": "IN SHORT 📉"}, "3": {"text": "COOLDOWN 🛑"}}}], "thresholds": {"steps": [{"color": "gray"}, {"color": "green", "value": 1}, {"color": "blue", "value": 2}, {"color": "orange", "value": 3}]}}},
+      "options": {"colorMode": "background"}
+    },
+    {
+      "id": 3, "type": "gauge", "title": "Market Weather",
+      "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
+      "description": "The bot WON'T trade in a storm. CALM=Safe. CHOPPY=50% size. STORM=No trades. If it's sitting still, blame this.",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_volatility_regime", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 2, "mappings": [{"type": "value", "options": {"0": {"text": "CALM 😌"}, "1": {"text": "CHOPPY 🌊"}, "2": {"text": "STORM ⛈️"}}}], "thresholds": {"steps": [{"color": "green"}, {"color": "yellow", "value": 1}, {"color": "red", "value": 2}]}}}
+    },
+    {
+      "id": 4, "type": "gauge", "title": "Trend Compass",
+      "gridPos": {"x": 18, "y": 1, "w": 6, "h": 4},
+      "description": "-100 = Strong Downtrend, +100 = Strong Uptrend. Bot only buys when green, sells when red.",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_trend_score", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"min": -100, "max": 100, "thresholds": {"steps": [{"color": "red", "value": -100}, {"color": "yellow", "value": -20}, {"color": "green", "value": 20}]}}}
+    },
+    {
+      "type": "row", "title": "ROW 2: WHAT DOES THE BOT SEE?", "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}
+    },
+    {
+      "id": 5, "type": "gauge", "title": "BOT CONFIDENCE - Edge Score",
+      "gridPos": {"x": 0, "y": 6, "w": 12, "h": 8},
+      "description": "**MOST IMPORTANT PANEL.** 0-100 score of its statistical advantage. >70 = High conviction (green). 30-70 = Watching. <30 = Bad conditions, bot does NOTHING on purpose.",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_edge_score * 100", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 100, "thresholds": {"steps": [{"color": "red"}, {"color": "yellow", "value": 30}, {"color": "green", "value": 70}]}}}
+    },
+    {
+      "id": 6, "type": "table", "title": "Why Did We Enter? (Last Signal)",
+      "gridPos": {"x": 12, "y": 6, "w": 12, "h": 8},
+      "description": "Don't read RSI. Read the STORY. Example: 'TrendFlip + Edge(82) + Vol=Calm'",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_last_signal_info", "format": "table", "instant": true, "refId": "A"}],
+      "transformations": [{"id": "organize", "options": {"includeByName": {"reason": true, "edge": true, "side": true, "Time": false}}}]
+    },
+    {
+      "type": "row", "title": "ROW 3: IS IT WORKING?", "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1}
+    },
+    {
+      "id": 7, "type": "stat", "title": "Current Position",
+      "gridPos": {"x": 0, "y": 15, "w": 6, "h": 4},
+      "description": "LONG=Betting UP. SHORT=Betting DOWN. FLAT=In cash, safe.",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_position_direction", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"-1": {"text": "SHORT 📉"}, "0": {"text": "FLAT 💤"}, "1": {"text": "LONG 📈"}}}]}}
+    },
+    {
+      "id": 8, "type": "gauge", "title": "Risk Thermometer",
+      "gridPos": {"x": 6, "y": 15, "w": 6, "h": 4},
+      "description": "How much you lose if stop-loss hits. Bot never risks more than your config (default 1%).",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_portfolio_risk_pct * 100", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 3, "thresholds": {"steps": [{"color": "green"}, {"color": "yellow", "value": 1.5}, {"color": "red", "value": 2}]}}}
+    },
+    {
+      "id": 9, "type": "stat", "title": "Today's Score (Realized PnL)",
+      "gridPos": {"x": 12, "y": 15, "w": 6, "h": 4},
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sum(increase(sentinel_realized_pnl_usd[24h]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "thresholds": {"steps": [{"color": "red"}, {"color": "green", "value": 0}]}}}
+    },
+    {
+      "id": 10, "type": "stat", "title": "Win Rate (Last 30)",
+      "gridPos": {"x": 18, "y": 15, "w": 6, "h": 4},
+      "description": "55% is EXCELLENT. It's not about being right, it's about making more when right than you lose when wrong.",
+      "datasource": {"uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sentinel_win_rate_30 * 100", "instant": true, "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"steps": [{"color": "red", "value": 0}, {"color": "yellow", "value": 45}, {"color": "green", "value": 55}]}}}
+    }
+  ]
+}
