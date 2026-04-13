@@ -193,27 +193,123 @@ class DecisionEngine:
         
         return decision
     
-    def record_trade_result(self, symbol: str, profit: float):
-        """Record trade result for tracking"""
+    def record_trade_result(
+        self,
+        symbol: str,
+        profit: float,
+        fill_price: Optional[float] = None,
+        quantity: Optional[float] = None,
+        side: Optional[str] = None,
+        realized_pnl: Optional[float] = None,
+        order_id: Optional[str] = None,
+    ):
+        """Record trade result for tracking.
+        
+        Called when Pulse reports ORDER_FILLED via Command Bus.
+        This closes the feedback loop and enables advanced risk logic.
+        """
+        # Use realized PnL if provided, otherwise use profit
+        final_pnl = realized_pnl if realized_pnl is not None else profit
+        
+        logger.info(
+            "📊 Trade recorded: %s %s @ %.2f qty=%.4f pnl=%.2f order_id=%s",
+            symbol, side or "UNKNOWN", 
+            fill_price or 0, quantity or 0,
+            final_pnl, order_id or "N/A"
+        )
+        
         if symbol not in self.total_trades:
             self.total_trades[symbol] = 0
             self.winning_trades[symbol] = 0
             self.consecutive_losses[symbol] = 0
+            self.position_pnl[symbol] = 0.0
         
         self.total_trades[symbol] += 1
         
-        if profit > 0:
+        if final_pnl > 0:
             self.winning_trades[symbol] += 1
             self.consecutive_losses[symbol] = 0
-            logger.info(f"✅ {symbol}: Winning trade (+${profit:.2f})")
+            logger.info(f"✅ {symbol}: Winning trade (+${final_pnl:.2f})")
         else:
             self.consecutive_losses[symbol] += 1
             logger.warning(
-                f"❌ {symbol}: Losing trade (-${abs(profit):.2f}) "
+                f"❌ {symbol}: Losing trade (-${abs(final_pnl):.2f}) "
                 f"[Streak: {self.consecutive_losses[symbol]}]"
             )
+        
+        # Update position PnL
+        self.position_pnl[symbol] = final_pnl
         
         # Update metrics
         edge_consecutive_losses.labels(symbol=symbol).set(self.consecutive_losses[symbol])
         win_rate = (self.winning_trades[symbol] / self.total_trades[symbol]) * 100
         edge_win_rate.labels(symbol=symbol).set(win_rate)
+
+    def update_position_state(
+        self,
+        symbol: str,
+        position_size: float,
+        entry_price: Optional[float] = None,
+        pnl_pct: float = 0.0,
+        pnl_dollar: float = 0.0,
+    ):
+        """Update position state from Pulse.
+        
+        Called when Pulse reports POSITION_UPDATE via Command Bus.
+        This keeps DecisionEngine in sync with real position state.
+        """
+        self.position_pnl[symbol] = pnl_dollar
+        
+        logger.debug(
+            "📍 Position update: %s size=%.4f entry=%.2f pnl=%.2f%% ($.2f)",
+            symbol, position_size, entry_price or 0, pnl_pct, pnl_dollar
+        )
+
+    def update_account_state(
+        self,
+        total_equity: float,
+        available_balance: float,
+        margin_used: float = 0.0,
+        unrealized_pnl: float = 0.0,
+    ):
+        """Update account-level state from Pulse.
+        
+        Called when Pulse reports ACCOUNT_UPDATE via Command Bus.
+        This enables account-level risk checks.
+        """
+        # Update peak equity for drawdown tracking
+        if not hasattr(self, 'peak_equity_total'):
+            self.peak_equity_total = total_equity
+            
+        if total_equity > self.peak_equity_total:
+            self.peak_equity_total = total_equity
+        
+        # Calculate current drawdown
+        if self.peak_equity_total > 0:
+            drawdown_pct = ((self.peak_equity_total - total_equity) / self.peak_equity_total) * 100
+            logger.debug(
+                "💰 Account update: equity=%.2f unrealized_pnl=%.2f drawdown=%.2f%%",
+                total_equity, unrealized_pnl, drawdown_pct
+            )
+
+    def record_order_rejected(
+        self,
+        symbol: str,
+        order_id: str,
+        reason: str,
+    ):
+        """Record order rejection for tracking.
+        
+        Called when Pulse reports ORDER_REJECTED via Command Bus.
+        """
+        if not hasattr(self, 'rejected_orders'):
+            self.rejected_orders = {}
+        
+        if symbol not in self.rejected_orders:
+            self.rejected_orders[symbol] = 0
+        self.rejected_orders[symbol] += 1
+        
+        logger.warning(
+            "❌ Order rejected: %s order_id=%s reason=%s (total rejected: %d)",
+            symbol, order_id, reason, self.rejected_orders[symbol]
+        )

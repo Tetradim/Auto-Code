@@ -690,6 +690,76 @@ async def get_correlation():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Command Bus Test Endpoints (for testing Pulse → Edge communication)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@api_router.post("/test/send-command")
+async def test_send_command(command: dict = Body(...)):
+    """Send a command to Edge via the Command Bus.
+    
+    This endpoint allows Pulse (or you) to simulate sending commands
+    that would normally come via MongoDB Change Stream.
+    
+    Example - send ORDER_FILLED:
+    ```json
+    {
+      "command_type": "ORDER_FILLED",
+      "symbol": "BTCUSDT",
+      "order_id": "se-order-123",
+      "fill_price": 42000.0,
+      "quantity": 0.1,
+      "side": "BUY",
+      "pnl_realized": 50.0
+    }
+    ```
+    
+    Example - send POSITION_UPDATE:
+    ```json
+    {
+      "command_type": "POSITION_UPDATE",
+      "symbol": "BTCUSDT",
+      "position_size": 0.5,
+      "entry_price": 41900.0,
+      "current_pnl_pct": 2.38,
+      "current_pnl_dollar": 50.0
+    }
+    ```
+    """
+    from datetime import datetime, timezone
+    from shared.commands import COMMANDS_COLLECTION
+    
+    # Add timestamp if not provided
+    if "timestamp" not in command:
+        command["timestamp"] = datetime.now(timezone.utc).isoformat()
+    
+    # Insert into commands collection (triggers change stream)
+    result = await db[COMMANDS_COLLECTION].insert_one(command)
+    
+    return {
+        "status": "command sent to Edge via Change Stream",
+        "command_type": command.get("command_type"),
+        "symbol": command.get("symbol"),
+        "inserted_id": str(result.inserted_id),
+    }
+
+
+@api_router.get("/test/commands")
+async def list_commands(limit: int = 10):
+    """List recent commands in the Command Bus."""
+    from shared.commands import COMMANDS_COLLECTION
+    
+    commands = await db[COMMANDS_COLLECTION].find()
+        .sort("timestamp", -1)
+        .limit(limit)
+        .to_list(limit)
+    
+    return {
+        "count": len(commands),
+        "commands": commands,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Prometheus scrape endpoint (outside the /api prefix)
 # ═══════════════════════════════════════════════════════════════════════════
 

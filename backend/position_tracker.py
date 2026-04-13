@@ -41,6 +41,18 @@ Schema expected from Pulse in the `positions` collection
 
 All fields except `symbol` and `status` are optional — the tracker normalises
 and applies safe defaults so partial documents don't crash the risk guards.
+
+Command Bus (Pulse → Edge feedback loop)
+─────────────────────────────────────────
+The tracker also watches the `commands` collection for Pulse → Edge messages.
+This enables the feedback loop where Pulse reports:
+- ORDER_FILLED: Order fill confirmation with real PnL
+- POSITION_UPDATE: Current position state
+- ACCOUNT_UPDATE: Account-level metrics
+- ORDER_REJECTED: Failed order notification
+
+When these commands arrive, DecisionEngine methods are called to update
+risk state, close the feedback loop, and enable advanced risk logic.
 """
 import asyncio
 import logging
@@ -239,15 +251,21 @@ class PositionTracker:
             self._bg_task.cancel()
 
     async def _run(self) -> None:
-        """Main background loop: attempt CHANGE_STREAM, probe for upgrade."""
+        """Main background loop: attempt CHANGE_STREAM, probe for upgrade.
+        
+        Also runs the Command Bus change stream to listen for Pulse → Edge messages.
+        """
         if self.db is None:
             logger.warning(
                 "PositionTracker: no DB — running in SELF_SOVEREIGN mode permanently"
             )
             return
 
-        # Initial probe
-        await self._try_change_stream()
+        # Initial probe - positions and commands
+        await asyncio.gather(
+            self._try_change_stream(),
+            self._try_command_stream(),
+        )
 
         # If still SELF_SOVEREIGN, schedule periodic upgrade probes
         while self._running:
@@ -255,6 +273,9 @@ class PositionTracker:
             if self.mode == TrackingMode.SELF_SOVEREIGN:
                 logger.debug("PositionTracker: probing for change stream upgrade...")
                 await self._try_change_stream()
+            
+            # Always probe for command stream too
+            await self._try_command_stream()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Change stream (primary mode)
@@ -347,6 +368,167 @@ class PositionTracker:
                     symbol, final_pnl, status,
                 )
             self._state[symbol] = _empty_pos()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Command Bus Change Stream (Pulse → Edge feedback loop)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _try_command_stream(self) -> None:
+        """Watch the commands collection for Pulse → Edge messages.
+        
+        This implements the feedback loop where Pulse reports:
+        - ORDER_FILLED: Order fill confirmation
+        - POSITION_UPDATE: Current position state  
+        - ACCOUNT_UPDATE: Account-level metrics
+        - ORDER_REJECTED: Failed orders
+        """
+        if not hasattr(self, '_command_stream_running'):
+            self._command_stream_running = False
+        
+        if self._command_stream_running:
+            return
+            
+        try:
+            # Import command types for handling
+            from shared.commands import (
+                CommandType, command_from_dict, COMMANDS_COLLECTION
+            )
+            
+            pipeline = [
+                {"$match": {"operationType": {"$in": ["insert", "update", "replace"]}}}
+            ]
+            
+            async with self.db[COMMANDS_COLLECTION].watch(
+                pipeline,
+                full_document="updateLookup",
+            ) as stream:
+                self._command_stream_running = True
+                logger.info("✅ CommandBus: watching commands collection")
+                
+                async for change in stream:
+                    if not self._running:
+                        break
+                    try:
+                        await self._handle_command(change)
+                    except Exception as exc:
+                        logger.error("CommandBus: error handling command: %s", exc)
+                        
+        except Exception as exc:
+            logger.debug("CommandBus: change stream unavailable (%s)", exc)
+        finally:
+            self._command_stream_running = False
+
+    async def _handle_command(self, change: dict) -> None:
+        """Process a command from Pulse.
+        
+        When ORDER_FILLED arrives, we call decision_engine.record_trade_result()
+        with real fill data, activating the advanced risk logic.
+        
+        When POSITION_UPDATE arrives, we call decision_engine.update_position_state()
+        with real position data.
+        """
+        from shared.commands import CommandType, command_from_dict
+        
+        doc = change.get("fullDocument") or {}
+        if not doc:
+            return
+        
+        cmd_type = doc.get("command_type")
+        if not cmd_type:
+            return
+        
+        try:
+            # Parse into typed command object
+            cmd = command_from_dict(doc)
+            
+            # Handle each command type
+            if cmd_type == CommandType.ORDER_FILLED:
+                await self._handle_order_filled(cmd)
+            elif cmd_type == CommandType.POSITION_UPDATE:
+                await self._handle_position_update(cmd)
+            elif cmd_type == CommandType.ACCOUNT_UPDATE:
+                await self._handle_account_update(cmd)
+            elif cmd_type == CommandType.ORDER_REJECTED:
+                await self._handle_order_rejected(cmd)
+            else:
+                logger.debug("CommandBus: unhandled command type: %s", cmd_type)
+                
+        except Exception as exc:
+            logger.error("CommandBus: failed to process command: %s", exc)
+
+    async def _handle_order_filled(self, cmd) -> None:
+        """Handle ORDER_FILLED command - close the feedback loop."""
+        if not self.decision_engine:
+            return
+            
+        # Record the trade result with real fill data
+        self.decision_engine.record_trade_result(
+            symbol=cmd.symbol,
+            fill_price=cmd.fill_price,
+            quantity=cmd.quantity,
+            side=cmd.side,
+            realized_pnl=cmd.pnl_realized,
+            order_id=cmd.order_id,
+        )
+        
+        logger.info(
+            "✅ CommandBus: ORDER_FILLED %s @ %.2f (pnl=%.2f)",
+            cmd.symbol, cmd.fill_price, cmd.pnl_realized or 0
+        )
+
+    async def _handle_position_update(self, cmd) -> None:
+        """Handle POSITION_UPDATE command - update position state."""
+        if not self.decision_engine:
+            return
+            
+        # Update position state in decision engine
+        self.decision_engine.update_position_state(
+            symbol=cmd.symbol,
+            position_size=cmd.position_size,
+            entry_price=cmd.entry_price,
+            pnl_pct=cmd.current_pnl_pct,
+            pnl_dollar=cmd.current_pnl_dollar,
+        )
+        
+        logger.info(
+            "📍 CommandBus: POSITION_UPDATE %s size=%.4f pnl=%.2f%%",
+            cmd.symbol, cmd.position_size, cmd.current_pnl_pct
+        )
+
+    async def _handle_account_update(self, cmd) -> None:
+        """Handle ACCOUNT_UPDATE command - update account metrics."""
+        if not self.decision_engine:
+            return
+            
+        # Update account state in decision engine
+        self.decision_engine.update_account_state(
+            total_equity=cmd.total_equity,
+            available_balance=cmd.available_balance,
+            margin_used=cmd.total_margin_used,
+            unrealized_pnl=cmd.unrealized_pnl,
+        )
+        
+        logger.info(
+            "💰 CommandBus: ACCOUNT_UPDATE equity=%.2f pnl=%.2f",
+            cmd.total_equity, cmd.unrealized_pnl
+        )
+
+    async def _handle_order_rejected(self, cmd) -> None:
+        """Handle ORDER_REJECTED command - log the failure."""
+        if not self.decision_engine:
+            return
+            
+        # Record the rejection for risk tracking
+        self.decision_engine.record_order_rejected(
+            symbol=cmd.symbol,
+            order_id=cmd.order_id,
+            reason=cmd.reason,
+        )
+        
+        logger.warning(
+            "❌ CommandBus: ORDER_REJECTED %s reason=%s",
+            cmd.symbol, cmd.reason
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Force-fallback (callable from tests or alert handler)
