@@ -231,6 +231,171 @@ class PulseClient:
             logger.info("STANDALONE: would have sent %s → %s", decision, symbol)
         return sent
 
+    async def send_signal(
+        self,
+        symbol: str,
+        signal_score: float,
+        action: str,
+        confidence: float = 0.5,
+        reason: str = "",
+        risk_size: float = 0.0,
+        stop_loss: float = 0.0,
+    ) -> bool:
+        """Send a full signal to Pulse with all decision parameters.
+        
+        This is the primary method for Edge → Pulse communication when
+        making trading decisions.
+        
+        Args:
+            symbol: Trading symbol (e.g., "NVDA", "AAPL")
+            signal_score: Signal strength (-10 to +10)
+            action: Trading action ("BUY", "SELL", "HOLD", "EMERGENCY_SELL")
+            confidence: Confidence level (0.0 to 1.0)
+            reason: Human-readable reason for the decision
+            risk_size: Recommended position size (fraction of portfolio)
+            stop_loss: Stop loss price if entering position
+            
+        Returns:
+            True if signal was sent successfully, False otherwise
+        """
+        from shared.commands import SignalUpdateCommand
+        
+        # Create the command object for serialization
+        cmd = SignalUpdateCommand(
+            symbol=symbol.upper(),
+            signal_score=signal_score,
+            action=action,
+            confidence=confidence,
+            reason=reason,
+            metadata={
+                "risk_size": risk_size,
+                "stop_loss": stop_loss,
+                "source": "sentinel_edge",
+            }
+        )
+        
+        payload = cmd.model_dump()
+        endpoint = f"/api/signals/{symbol}"
+        sent = await self._post(endpoint, payload)
+        
+        if sent:
+            logger.info(
+                f"📤 Signal sent to Pulse: {action} {symbol} | score={signal_score:.1f} conf={confidence:.2f}"
+            )
+        else:
+            logger.warning(f"⚠️ Failed to send signal to Pulse: {action} {symbol}")
+            
+        return sent
+
+    async def send_correlation_alert(
+        self,
+        cluster_id: str,
+        correlated_symbols: list[str],
+        cluster_strength: float,
+        alert_type: str = "BREADTH_EXTREME",
+        recommended_action: str = "REDUCE_SIZE",
+    ) -> bool:
+        """Send correlation cluster alert to Pulse for risk management.
+        
+        Called when correlation engine detects extreme market conditions
+        (e.g., many symbols moving together, indicating systemic risk).
+        
+        Args:
+            cluster_id: Unique identifier for the correlation cluster
+            correlated_symbols: List of symbols in the cluster
+            cluster_strength: Strength of correlation (0.0 to 1.0)
+            alert_type: Type of alert ("CLUSTER_FORMED", "CLUSTER_BROKE", "BREADTH_EXTREME")
+            recommended_action: Recommended action ("REDUCE_SIZE", "CLOSE_ALL", "HOLD")
+            
+        Returns:
+            True if alert was sent successfully
+        """
+        from shared.commands import CorrelationAlertCommand
+        
+        cmd = CorrelationAlertCommand(
+            symbol=correlated_symbols[0] if correlated_symbols else "MARKET",
+            correlated_symbols=correlated_symbols,
+            cluster_strength=cluster_strength,
+            recommended_action=recommended_action,
+            metadata={
+                "cluster_id": cluster_id,
+                "alert_type": alert_type,
+            }
+        )
+        
+        payload = cmd.model_dump()
+        endpoint = "/api/alerts/correlation"
+        return await self._post(endpoint, payload)
+
+    async def send_emergency_exit(
+        self,
+        symbol: str,
+        reason: str = "",
+        immediate: bool = True,
+    ) -> bool:
+        """Send emergency exit command to Pulse.
+        
+        This is the fastest way to force-close a position when risk
+        parameters are breached.
+        
+        Args:
+            symbol: Symbol to exit
+            reason: Reason for emergency exit
+            immediate: If True, bypasses retry queue and goes straight to execution
+            
+        Returns:
+            True if command was sent
+        """
+        logger.critical(f"🚨 EMERGENCY EXIT: {symbol} | reason: {reason}")
+        return await self.send_decision(
+            symbol,
+            "emergency_exit",
+            reason=reason,
+            immediate=immediate,
+        )
+
+    # ====================== PULSE STATUS METHODS ======================
+
+    async def get_account_status(self) -> Optional[Dict[str, Any]]:
+        """Get account status from Pulse (buying power, equity, etc.).
+        
+        Returns:
+            Dict with account info or None if unavailable
+        """
+        data = await self._get("/api/account/status")
+        if data:
+            logger.debug(f"Account status: equity={data.get('total_equity')}")
+        return data
+
+    async def get_positions(self) -> Dict[str, Dict[str, Any]]:
+        """Get all open positions from Pulse.
+        
+        Returns:
+            Dict mapping symbol -> position data
+        """
+        data = await self._get("/api/positions")
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get position for a specific symbol from Pulse."""
+        return await self.get_position(symbol)
+
+    async def health_check_detailed(self) -> Dict[str, Any]:
+        """Perform detailed health check of Pulse connection.
+        
+        Returns:
+            Dict with connection state, latency, and last successful contact
+        """
+        return {
+            "available": self.pulse_available,
+            "circuit_state": self.state.name,
+            "failure_count": self.failure_count,
+            "success_count": self.success_count,
+            "retry_queue_size": self.retry_queue.stats().get("pending", 0),
+        }
+
     async def enable_trailing_stop(self, symbol: str, trailing_percent: float) -> bool:
         return await self.send_decision(symbol, "enable_trailing_stop", trailing_percent=trailing_percent)
 

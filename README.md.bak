@@ -1,0 +1,277 @@
+# Sentinel Edge — Production Trading System
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/React-18+-blue?logo=react" alt="React">
+  <img src="https://img.shields.io/badge/FastAPI-0.115-blue?logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/TypeScript-5-blue?logo=typescript" alt="TypeScript">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+</p>
+
+**Sentinel Edge** is a comprehensive, production-grade algorithmic trading system with real-time market data ingestion, multi-provider price feeds, backtesting engines, Monte Carlo risk simulation, strategy optimization, and automated decision-making capabilities.
+
+This repository implements a complete trading pipeline from market data → signal generation → risk management → order execution with extensive safeguards, observability, and a modern React control interface.
+
+---
+
+## 🚀 System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              SENTINEL EDGE ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│  ┌────────────────┐    ┌────────────────┐    ┌────────────────┐                 │
+│  │  React UI      │───▶│  FastAPI       │───▶│  Decision      │                 │
+│  │  (Dashboard)  │◀───│  Server        │◀───│  Engine        │                 │
+│  └────────────────┘    └────────────────┘    └────────────────┘                 │
+│         │                      │                      │                           │
+│         ▼                      ▼                      ▼                           │
+│  ┌────────────────┐    ┌────────────────┐    ┌────────────────┐                 │
+│  │  WebSocket     │    │  Price         │    │  Risk          │                 │
+│  │  Real-time    │    │  Fetchers      │    │  Management   │                 │
+│  └────────────────┘    └────────────────┘    └────────────────┘                 │
+│         │                      │                      │                           │
+│         └────────────────────┼──────────────────────┘                           │
+│                            ▼                                                  │
+│                  ┌─────────────────────┐                                    │
+│                  │  Trading Scheduler  │                                     │
+│                  │  (Evaluation Loop)  │                                    │
+│                  └─────────────────────┘                                    │
+│                            │                                                │
+│         ┌──────────────────┼──────────────────────┐                          │
+│         ▼                  ▼                  ▼                              │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                    │
+│  │  Provider  │    │  Backtest   │    │  Pulse     │                    │
+│  │  Health    │    │  Engine     │    │  Client    │                    │
+│  └─────────────┘    └─────────────┘    └─────────────┘                    │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📁 Repository Structure
+
+```
+sentinel-edge/
+├── backend/
+│   ├── server.py                    # FastAPI main entry point
+│   ├── engine.py                    # Core decision engine
+│   ├── scheduler.py                 # Evaluation scheduler + safeguards
+│   ├── price_fetcher.py             # Multi-provider price aggregation
+│   ├── pulse_client.py              # Sentinel Pulse integration
+│   ├── retry_queue.py               # Priority queue for decision retry
+│   ├── metrics.py                   # Prometheus metrics
+│   ├── providers/
+│   │   ├── base.py                  # BasePriceProvider abstract class
+│   │   ├── health.py                # Provider health monitoring
+│   │   ├── polygon_provider.py     # Polygon.io integration
+│   │   ├── finnhub_provider.py     # Finnhub integration
+│   │   └── yfinance_provider.py    # Yahoo Finance (fallback)
+│   ├── backtest/
+│   │   ├── engine.py                # BacktestEngine with slippage/commission
+│   │   ├── monte_carlo.py          # Monte Carlo simulation engine
+│   │   └── runner.py                # Backtest CLI runner
+│   ├── strategies/
+│   │   ├── versioning.py            # Strategy version manager
+│   │   └── optimizer.py             # Grid search optimizer
+│   └── tests/
+│       ├── test_engine_risk_overrides.py
+│       ├── test_pulse_retry_queue.py
+│       └── test_backtest_engine.py
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Dashboard.tsx
+│   │   │   ├── TickerConfigModal.tsx
+│   │   │   ├── BacktestResultsChart.tsx
+│   │   │   ├── HealthStatusCard.tsx
+│   │   │   └── DraggableList.tsx
+│   │   ├── lib/
+│   │   │   ├── api.ts
+│   │   │   ├── ws.ts
+│   │   │   └── hooks.ts
+│   │   └── pages/
+│   ├── package.json
+│   └── vite.config.ts
+├── docker-compose.yml
+├── docker-compose.monitoring.yml
+├── prometheus.yml
+├── .env.example
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## ✨ Features
+
+### Phase 1: Core Metrics
+- Opening Range Breakout (ORB) — Track 9:30-9:45 AM volatility
+- Average True Range (ATR) — Volatility-adjusted position sizing
+- Momentum Signals — Composite signal scoring engine
+- Real-time price updates — Multi-timeframe analysis
+
+### Phase 2: Scheduler
+- Config-driven evaluation — Per-symbol parameter overrides
+- Scheduled execution — Configurable intervals
+- Market hours filtering — US market open detection
+
+### Phase 3: WebSocket Integration
+- Real-time price feeds — Live market data streaming
+- Exponential backoff — Reconnection resilience
+- Dynamic subscriptions — Per-symbol updates
+
+### Phase 4: Provider Health
+- Multi-provider fallback — Primary/secondary price sources
+- Health monitoring — Provider latency & failure tracking
+- Drag-to-reorder — UI for provider priority
+
+### Phase 5: Backtest & Dry-Run
+- Historical simulation — Replay strategy on historical data
+- Dry-run mode — Simulated trading without capital
+- Equity curve — Track portfolio growth
+
+### Phase 6: Provider Implementations
+- Polygon.io — Full REST + WebSocket ready
+- Finnhub — Quote + candle endpoints
+- Slippage modeling — Realistic execution costs
+- Commission tracking — Per-trade cost accounting
+
+### Phase 7: Monte Carlo
+- Probabilistic simulation — 1000+ outcomes
+- Risk metrics — VaR, profit probability
+- Stress testing — Volatility multiplier
+
+### Phase 8: Strategy Optimization
+- Grid search — Automated parameter tuning
+- Strategy versioning — Performance history tracking
+- Production safeguards — Circuit breaker + kill switch
+- Daily loss limits — Automatic trading pause
+
+---
+
+## 🛠️ Tech Stack
+
+| Component | Technology | Version |
+|-----------|------------|---------|
+| Backend Framework | FastAPI | 0.115+ |
+| Async Runtime | asyncio / uvicorn | Python 3.11+ |
+| Database | MongoDB (Motor) | 6.0+ |
+| Frontend | React + TypeScript | 18+ / 5.0+ |
+| Build Tool | Vite | 5.0+ |
+| HTTP Client | httpx | 0.27+ |
+| Data Handling | pandas / numpy | latest |
+
+---
+
+## ⚡ Quick Start
+
+### 1. Clone & Install
+```bash
+git clone https://github.com/Tetradim/sentinel-edge.git
+cd sentinel-edge
+```
+
+### 2. Backend Setup
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+### 3. Run Backend
+```bash
+uvicorn backend.server:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 4. Run Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+## 📊 API Endpoints
+
+### Market Data
+- GET /api/markets — List available markets
+- GET /api/markets/{symbol}/price — Current price
+- GET /api/orb/{symbol} — ORB levels
+
+### Configuration
+- GET/POST /api/tickers — List/update ticker configs
+
+### Control
+- POST /api/control/start|stop|pause|resume
+
+### Backtest & Optimization
+- POST /api/backtest — Run backtest simulation
+- POST /api/backtest/optimize — Grid search optimization
+
+### Emergency
+- POST /api/emergency/kill-switch — Toggle emergency stop
+
+---
+
+## 🔬 Backtest Engine
+
+Run historical simulation:
+```json
+{
+  "symbol": "SPY",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "initial_capital": 10000,
+  "slippage_pct": 0.05,
+  "commission_pct": 0.1,
+  "num_simulations": 1000
+}
+```
+
+Returns equity curve, trade log, performance metrics, and Monte Carlo risk analysis.
+
+---
+
+## 🎛️ Monte Carlo Simulation
+
+| Metric | Description |
+|--------|-------------|
+| median_final_equity | 50th percentile outcome |
+| worst_case_equity | 5th percentile (VaR) |
+| probability_of_profit | % of profitable runs |
+| mean_max_drawdown | Average drawdown |
+
+---
+
+## 🔐 Production Safeguards
+
+- **Kill Switch**: Instantly halts all trading
+- **Daily Loss Limit**: Auto-pause at -5% daily loss
+- **Circuit Breaker**: Provider fallback on failure
+
+---
+
+## 🧪 Testing
+
+```bash
+pytest backend/tests/ -v
+```
+
+---
+
+## 📈 Deployment
+
+```bash
+docker-compose up -d
+```
+
+---
+
+## ⚠️ Disclaimer
+
+This software is for educational purposes. Past backtest results do not guarantee future performance. Always use paper trading before live capital.
+
+---

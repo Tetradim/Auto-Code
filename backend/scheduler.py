@@ -227,28 +227,48 @@ class EvaluationScheduler:
                 volume_zscore=volume_zscore,
             )
 
-            # ── 6. Position state (PositionTracker: change stream or self-sovereign)
-            # In SELF_SOVEREIGN mode, update local PnL from live price before
-            # passing it to DecisionEngine so all risk guards fire correctly.
+            # ── 6. Position state (DecisionEngine: synced from Pulse via Change Stream)
+            # Get real position state from DecisionEngine which receives updates
+            # from Pulse via MongoDB Change Stream (ORDER_FILLED, POSITION_UPDATE)
+            position = self.decisions.get_position(symbol)
+            has_position = position is not None
+            pnl_pct = position.get("current_pnl_pct", 0.0) if position else 0.0
+            pnl_dollar = position.get("current_pnl_dollar", 0.0) if position else 0.0
+            
+            # Also update local position tracker for other components
             self.position_tracker.update_price(symbol, price)
             pos = self.position_tracker.get(symbol)
 
             # ── 7. Decision — all risk parameters populated ──────────────────
             ticker_cfg = self.ticker_configs.get(symbol, {})
             risk_cfg = ticker_cfg.get("risk", {})
+            
+            # Use real position data from DecisionEngine (synced from Pulse)
+            base_signal = signal_strength
+            
+            # Apply observation-based adjustments (from Pulse feedback, patterns, etc.)
+            if hasattr(self.decisions, 'apply_observation_adjustment'):
+                signal_strength = self.decisions.apply_observation_adjustment(
+                    signal_strength, symbol
+                )
+            
             decision = self.decisions.decide(
                 symbol=symbol,
                 trend=trend,
                 signal_strength=signal_strength,
-                pnl=pos["pnl"],
-                pnl_pct=pos["pnl_pct"],
+                pnl=pnl_dollar,
+                pnl_pct=pnl_pct,  # Real PnL from Pulse
                 current_drawdown=pos["drawdown_pct"],
-                has_position=pos["has_position"],
+                has_position=has_position,  # Real position state from Pulse
                 trailing_enabled=pos["trailing_enabled"],
                 max_consecutive_losses=risk_cfg.get("max_consecutive_losses"),
                 max_drawdown_pct=risk_cfg.get("max_drawdown_pct"),
                 trailing_stop_profit_threshold=risk_cfg.get("trailing_stop_profit_threshold"),
             )
+            
+            # Log if observation adjustment was applied
+            if base_signal != signal_strength:
+                logger.info(f"📊 {symbol}: Observation adjustment applied ({base_signal:.2f} -> {signal_strength:.2f})")
 
             # ── 8. Send decision to Pulse ────────────────────────────────────
             if decision == Decision.BUY:
@@ -390,9 +410,10 @@ class EvaluationScheduler:
         """Called by WebSocket when live price arrives - trigger immediate evaluation"""
         logger.info(f"📡 WS Live Update → {symbol} @ ${price:.2f} (vol={volume})")
 
-        # Skip if market is closed
-        if not self.market_hours.is_market_open():
-            logger.debug(f"WS update ignored for {symbol} - market closed")
+        # Skip if symbol's market is closed
+        if not self.market_hours.is_symbol_tradeable(symbol):
+            market = self.market_hours.get_market_for_symbol(symbol)
+            logger.debug(f"WS update ignored for {symbol} - market ({market}) closed")
             return
 
         # Trigger fresh evaluation with real data

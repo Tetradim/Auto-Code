@@ -28,6 +28,7 @@ import httpx
 from analyst.correlation.engine import CorrelationEngine
 from analyst.exporters.prometheus import PrometheusExporter
 from analyst.observability.otel import setup_otel, get_tracer
+from engine import DecisionEngine
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,9 @@ class SentinelEdge:
         start_server = os.getenv("ANALYST_START_METRICS_SERVER", "false").lower() == "true"
         self.prom_exporter = PrometheusExporter(start_server=start_server, port=8002)
 
+        # Decision engine with full Pulse feedback loop
+        self.decision_engine = DecisionEngine()
+
         self.correlation = CorrelationEngine(
             db=db,
             pulse_base_url=pulse_url,
@@ -82,12 +86,17 @@ class SentinelEdge:
         self._scheduler: Optional[Any] = None
         self._bg_tasks:  list = []
 
+        logger.info("SentinelEdge initialized with full Pulse integration")
+
     # ── Wiring ───────────────────────────────────────────────────────────────
 
     def set_scheduler(self, scheduler: Any) -> None:
         """Wire the EvaluationScheduler — share correlation engine, load plugins."""
         self._scheduler = scheduler
         scheduler.correlation = self.correlation
+        
+        # Wire decision engine for Pulse feedback loop
+        scheduler.decisions = self.decision_engine
 
         try:
             from analyst.signals import discover_plugins
@@ -97,7 +106,7 @@ class SentinelEdge:
             scheduler.signal_plugins = []
 
         logger.info(
-            "SentinelEdge wired to EvaluationScheduler (%d plugin(s) loaded)",
+            "SentinelEdge wired to EvaluationScheduler (decision_engine + %d plugin(s) loaded)",
             len(scheduler.signal_plugins),
         )
 
@@ -109,6 +118,7 @@ class SentinelEdge:
         self._bg_tasks = [
             asyncio.create_task(self._connect_pulse_ws(),    name="edge-pulse-ws"),
             asyncio.create_task(self._watch_mongo_commands(), name="edge-mongo-cmd"),
+            asyncio.create_task(self._watch_pulse_commands(), name="edge-pulse-cmd"),
         ]
         logger.info("SentinelEdge background tasks started")
 
@@ -310,6 +320,109 @@ class SentinelEdge:
                 logger.debug(
                     "analyst_commands stream error (%s) — retry in %ds", exc, backoff
                 )
+
+    # ── Pulse Commands (Change Stream from shared commands collection) ─────────
+
+    async def _watch_pulse_commands(self) -> None:
+        """Watch `commands` collection for Pulse → Edge commands.
+
+        This closes the feedback loop: Pulse reports ORDER_FILLED, POSITION_UPDATE,
+        and ACCOUNT_UPDATE via MongoDB Change Streams.
+        """
+        if self.db is None:
+            return
+
+        backoff = 0
+        while self._running:
+            if backoff > 0:
+                await asyncio.sleep(backoff)
+            try:
+                pipeline = [{"$match": {"operationType": {"$in": ["insert", "update"]}}}]
+                async with self.db.commands.watch(pipeline) as stream:
+                    logger.info("MongoDB change stream watching 'commands' (Pulse → Edge)")
+                    backoff = 15
+                    async for change in stream:
+                        if not self._running:
+                            break
+
+                        doc = change.get("fullDocument") or change.get("updateDescription", {}).get("updatedFields", {})
+                        if not doc:
+                            continue
+
+                        cmd_type = doc.get("command_type")
+                        symbol = doc.get("symbol")
+
+                        if not cmd_type or not symbol:
+                            continue
+
+                        await self._handle_pulse_command(cmd_type, symbol, doc)
+
+            except Exception as exc:
+                backoff = min((backoff or 15) * 2, 120)
+                logger.debug(
+                    "commands stream error (%s) — retry in %ds", exc, backoff
+                )
+
+    async def _handle_pulse_command(self, cmd_type: str, symbol: str, doc: dict) -> None:
+        """Handle incoming commands from Pulse via MongoDB Change Stream."""
+        try:
+            from shared.commands import command_from_dict
+
+            # Parse and validate command using shared schema
+            cmd = command_from_dict(doc)
+            logger.debug(f"Parsed command: {cmd}")
+
+            if cmd_type == "ORDER_FILLED":
+                # Get decision engine from scheduler
+                if self._scheduler and hasattr(self._scheduler, "decisions"):
+                    await self._scheduler.decisions.record_trade_result(
+                        symbol=symbol,
+                        fill_price=cmd.fill_price,
+                        quantity=cmd.quantity,
+                        side=cmd.side,
+                        realized_pnl=cmd.pnl_realized
+                    )
+                # Also update position tracker
+                pt = (
+                    self._scheduler.position_tracker
+                    if self._scheduler and hasattr(self._scheduler, "position_tracker")
+                    else None
+                )
+                if pt and cmd.side == "SELL":
+                    from engine import Decision
+                    pt.on_decision(
+                        symbol,
+                        Decision.SELL,
+                        exit_price=cmd.fill_price,
+                    )
+                logger.info(f"✅ Edge received ORDER_FILLED from Pulse → {symbol} | fill={cmd.fill_price} qty={cmd.quantity}")
+
+            elif cmd_type == "POSITION_UPDATE":
+                # Update position state in position tracker
+                pt = (
+                    self._scheduler.position_tracker
+                    if self._scheduler and hasattr(self._scheduler, "position_tracker")
+                    else None
+                )
+                if pt:
+                    state = pt.get(symbol) or {}
+                    state.update({
+                        "position_size": cmd.position_size,
+                        "entry_price": cmd.entry_price,
+                        "pnl_pct": cmd.current_pnl_pct,
+                        "pnl_dollar": cmd.current_pnl_dollar,
+                        "market_value": cmd.market_value,
+                        "source": "pulse_position_update",
+                    })
+                    pt._state[symbol] = state
+                logger.info(f"📍 Position sync from Pulse → {symbol} | size={cmd.position_size} pnl%={cmd.current_pnl_pct:.2f}")
+
+            elif cmd_type == "ACCOUNT_UPDATE":
+                # Future: update global risk metrics, buying power, etc.
+                logger.info(f"📊 Account update from Pulse → equity={cmd.total_equity} buying_power={cmd.buying_power}")
+
+        except Exception as e:
+            logger.error(f"Error processing command {cmd_type} for {symbol}: {e}")
 
     async def _handle_db_command(self, doc: dict) -> None:
         cmd = doc.get("command", "")

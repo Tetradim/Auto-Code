@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical, BookOpen, AlertTriangle, Gauge } from 'lucide-react';
+import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical, BookOpen, AlertTriangle, Gauge, Server, Wifi, AlertCircle, Wallet, Settings } from 'lucide-react';
 import { TradingOverview } from './components/dashboards/TradingOverview';
 import { BrokerHealth } from './components/dashboards/BrokerHealth';
 import { PnLTracking } from './components/dashboards/PnLTracking';
 import { MarketCoverage } from './components/dashboards/MarketCoverage';
+import { PaperTrading } from './components/dashboards/PaperTrading';
+import { PortfolioAnalytics } from './components/dashboards/PortfolioAnalytics';
+import { SettingsDashboard } from './components/dashboards/SettingsDashboard';
 import { TutorialsDashboard } from './components/tutorials';
 import { HealthDashboard } from './components';
 import { useStore } from './store/useStore';
@@ -17,10 +20,97 @@ const TABS = [
   { id: 'broker', label: 'Broker Health', icon: Shield },
   { id: 'pnl', label: 'P&L Tracking', icon: TrendingUp },
   { id: 'markets', label: 'Market Coverage', icon: Globe },
+  { id: 'paper', label: 'Paper Trading', icon: FlaskConical },
+  { id: 'portfolio', label: 'Portfolio', icon: Wallet },
+  { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'tutorials', label: 'Tutorials', icon: BookOpen },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
+
+// ==================== Pulse Availability Modal ====================
+
+interface PulseModalProps {
+  isOpen: boolean;
+  pulseAvailable: boolean;
+  pulseUrl: string;
+  onStartWithPulse: () => void;
+  onStartStandalone: () => void;
+}
+
+function PulseStartupModal({ isOpen, pulseAvailable, pulseUrl, onStartWithPulse, onStartStandalone }: PulseModalProps) {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${pulseAvailable ? 'bg-emerald-500/20' : 'bg-amber-500/20'}`}>
+            <Server className={`w-5 h-5 ${pulseAvailable ? 'text-emerald-400' : 'text-amber-400'}`} />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white">Sentinel Pulse</h2>
+            <p className="text-sm text-gray-400">Execution Broker Service</p>
+          </div>
+        </div>
+        
+        {pulseAvailable ? (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 text-emerald-400 mb-3">
+              <CheckCircle className="w-4 h-4" />
+              <span className="font-medium">Pulse is available</span>
+            </div>
+            <p className="text-gray-400 text-sm">
+              Sentinel Edge will connect to Pulse at <code className="text-gray-300">{pulseUrl}</code> for order execution and real-time position updates.
+            </p>
+          </div>
+        ) : (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 text-amber-400 mb-3">
+              <AlertCircle className="w-4 h-4" />
+              <span className="font-medium">Pulse not detected</span>
+            </div>
+            <p className="text-gray-400 text-sm mb-3">
+              Sentinel Edge can run in standalone mode without Pulse. Decisions will be logged but no orders will be executed.
+            </p>
+            <div className="bg-gray-800 rounded-lg p-3 text-sm">
+              <p className="text-gray-500 mb-1">Expected Pulse URL:</p>
+              <code className="text-gray-300">{pulseUrl}</code>
+            </div>
+          </div>
+        )}
+        
+        <div className="flex gap-3">
+          {pulseAvailable ? (
+            <button
+              onClick={onStartWithPulse}
+              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              <Wifi className="w-4 h-4" />
+              Connect to Pulse
+            </button>
+          ) : (
+            <button
+              onClick={onStartWithPulse}
+              className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              <Wifi className="w-4 h-4" />
+              Try Connecting
+            </button>
+          )}
+          <button
+            onClick={onStartStandalone}
+            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
+          >
+            Standalone Mode
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==================== Main App ====================
 
 export default function App() {
   const { connected, setConnected, mockMode, setMockMode } = useStore();
@@ -28,12 +118,47 @@ export default function App() {
   const [schedulerPaused, setSchedulerPaused] = useState(false);
   const [killSwitchActive, setKillSwitchActive] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Pulse state
+  const [showPulseModal, setShowPulseModal] = useState(true);
+  const [pulseAvailable, setPulseAvailable] = useState(false);
+  const [pulseUrl, setPulseUrl] = useState('http://pulse:8001');
+  const [pulseChecked, setPulseChecked] = useState(false);
+  
+  // Get Pulse URL from environment or use default
+  const PULSE_URL = process.env.REACT_APP_PULSE_URL || 'http://pulse:8001';
 
   useEffect(() => {
+    // Check Pulse availability on mount
+    checkPulseAvailability();
+    
     checkBackend();
     const interval = setInterval(checkBackend, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  const checkPulseAvailability = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/pulse/status`);
+      if (response.ok) {
+        const data = await response.json();
+        setPulseAvailable(data.available || false);
+        setPulseUrl(data.base_url || PULSE_URL);
+      }
+    } catch {
+      setPulseAvailable(false);
+    }
+    setPulseChecked(true);
+  };
+
+  const handleStartWithPulse = () => {
+    setShowPulseModal(false);
+    // Could trigger a retry connection to Pulse here
+  };
+
+  const handleStartStandalone = () => {
+    setShowPulseModal(false);
+  };
 
   const checkBackend = async () => {
     try {
@@ -80,6 +205,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
+      {/* ── Pulse Startup Modal ── */}
+      <PulseStartupModal
+        isOpen={showPulseModal && pulseChecked}
+        pulseAvailable={pulseAvailable}
+        pulseUrl={pulseUrl}
+        onStartWithPulse={handleStartWithPulse}
+        onStartStandalone={handleStartStandalone}
+      />
+      
       {/* ── Top bar ── */}
       <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between">
@@ -151,6 +285,19 @@ export default function App() {
               <span className="hidden sm:inline">{killSwitchActive ? 'KILL' : 'Kill'}</span>
             </button>
 
+            {/* Pulse indicator */}
+            <div
+              title={`Pulse: ${pulseAvailable ? 'Connected' : 'Not connected'}`}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+                pulseAvailable
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'bg-amber-500/20 text-amber-400'
+              }`}
+            >
+              <Server className="w-4 h-4" />
+              <span className="hidden sm:inline">{pulseAvailable ? 'Pulse' : 'No Pulse'}</span>
+            </div>
+
             {/* Connection badge */}
             <div
               data-testid="connection-status"
@@ -210,6 +357,9 @@ export default function App() {
         {activeTab === 'broker' && <BrokerHealth />}
         {activeTab === 'pnl' && <PnLTracking />}
         {activeTab === 'markets' && <MarketCoverage />}
+        {activeTab === 'paper' && <PaperTrading />}
+        {activeTab === 'portfolio' && <PortfolioAnalytics />}
+        {activeTab === 'settings' && <SettingsDashboard />}
         {activeTab === 'tutorials' && <TutorialsDashboard />}
       </main>
     </div>

@@ -154,6 +154,34 @@ class BacktestRequest(BaseModel):
     dry_run: bool = True
 
 
+class BacktestRunRequest(BaseModel):
+    """Enhanced request for POST /api/backtest/run - with strategy selection"""
+    symbols: List[str] = Field(default_factory=lambda: ["AAPL"])
+    start_date: str  # YYYY-MM-DD
+    end_date: str  # YYYY-MM-DD
+    strategy: str = "sma"  # sma, rsi, breakout, rsi_with_patterns, sma_with_patterns
+    initial_capital: float = 100000.0
+    position_size_pct: float = 0.10
+    stop_loss_pct: float = 0.05
+    take_profit_pct: float = 0.15
+    trailing_stop: bool = True
+    trailing_pct: float = 0.03
+    # Strategy-specific params
+    fast_period: Optional[int] = 10
+    slow_period: Optional[int] = 30
+    rsi_period: Optional[int] = 14
+    rsi_oversold: Optional[int] = 30
+    rsi_overbought: Optional[int] = 70
+    breakout_lookback: Optional[int] = 20
+    # Pattern mode (for pattern-enhanced strategies)
+    pattern_mode: Optional[str] = "filter"
+
+
+class BacktestReportRequest(BaseModel):
+    """Request for GET /api/backtest/report/{run_id}"""
+    run_id: str
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Lifespan
 # ─────────────────────────────────────────────────────────────────────────────
@@ -528,11 +556,276 @@ async def run_backtest(
     return result
 
 
+@api_router.post("/backtest/run")
+async def run_backtest_enhanced(
+    request: BacktestRunRequest
+):
+    """Enhanced backtest with strategy selection and patterns.
+    
+    Use this endpoint for full backtesting with:
+    - Strategy selection (sma, rsi, breakout, rsi_with_patterns, sma_with_patterns)
+    - Configurable risk parameters (stop loss, take profit, trailing)
+    - Pattern-enhanced strategies that filter/boost signals with chart patterns
+    
+    Returns run_id for fetching report later.
+    """
+    from backtest.engine import BacktestConfig, BacktestEngine
+    from strategies.registry import create_strategy, StrategyRegistry
+    
+    # Create config
+    config = BacktestConfig(
+        symbols=request.symbols,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        initial_capital=request.initial_capital,
+        position_size_pct=request.position_size_pct,
+        stop_loss_pct=request.stop_loss_pct,
+        take_profit_pct=request.take_profit_pct,
+        trailing_stop=request.trailing_stop,
+        trailing_pct=request.trailing_pct
+    )
+    
+    # Create strategy based on selection
+    strategy_params = {}
+    if request.strategy == "sma":
+        strategy_params = {"fast": request.fast_period, "slow": request.slow_period}
+    elif request.strategy == "rsi":
+        strategy_params = {
+            "period": request.rsi_period,
+            "oversold": request.rsi_oversold,
+            "overbought": request.rsi_overbought
+        }
+    elif request.strategy == "breakout":
+        strategy_params = {"lookback": request.breakout_lookback}
+    elif request.strategy in ["rsi_with_patterns", "sma_with_patterns"]:
+        strategy_params = {
+            "period": request.rsi_period,
+            "oversold": request.rsi_oversold,
+            "overbought": request.rsi_overbought,
+            "pattern_mode": request.pattern_mode
+        }
+    
+    strategy = create_strategy(request.strategy, config, **strategy_params)
+    
+    # Run backtest
+    engine = BacktestEngine(config, strategy)
+    metrics = await engine.run()
+    
+    # Store result for later retrieval
+    run_id = f"bt_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    _backtest_runs[run_id] = {
+        "config": request.dict(),
+        "metrics": metrics.to_dict(),
+        "trades": [
+            {
+                "entry": t.entry_date.isoformat() if t.entry_date else None,
+                "exit": t.exit_date.isoformat() if t.exit_date else None,
+                "symbol": t.symbol,
+                "side": t.side,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "pnl": t.pnl,
+                "pnl_pct": t.pnl_pct
+            } for t in metrics.trades
+        ],
+        "equity_curve": metrics.equity_curve,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    
+    return {
+        "run_id": run_id,
+        "status": "completed",
+        "summary": {
+            "total_return_pct": metrics.total_return_pct,
+            "annualized_return": metrics.annualized_return,
+            "sharpe_ratio": metrics.sharpe_ratio,
+            "sortino_ratio": metrics.sortino_ratio,
+            "max_drawdown_pct": metrics.max_drawdown_pct,
+            "total_trades": metrics.total_trades,
+            "win_rate": metrics.win_rate
+        }
+    }
+
+
+@api_router.get("/backtest/runs")
+async def list_backtest_runs():
+    """List all backtest runs"""
+    return {
+        "runs": [
+            {"run_id": k, "created_at": v.get("created_at")}
+            for k, v in _backtest_runs.items()
+        ]
+    }
+
+
+@api_router.get("/backtest/report/{run_id}")
+async def get_backtest_report(run_id: str):
+    """Get full backtest report with trades and equity curve"""
+    run = _backtest_runs.get(run_id)
+    if not run:
+        return {"error": "Run not found"}
+    
+    return {
+        "run_id": run_id,
+        "config": run["config"],
+        "metrics": run["metrics"],
+        "trades": run["trades"],
+        "equity_curve": run["equity_curve"][:100],  # Limit for display
+        "created_at": run["created_at"]
+    }
+
+
+@api_router.get("/strategies")
+async def list_strategies():
+    """List all available strategies with their parameters"""
+    from strategies.registry import StrategyRegistry
+    return StrategyRegistry.list_strategies()
+
+
+@api_router.get("/strategies/{strategy_name}")
+async def get_strategy_info(strategy_name: str):
+    """Get detailed info about a specific strategy"""
+    from strategies.registry import StrategyRegistry
+    info = StrategyRegistry.get_strategy_info(strategy_name)
+    if not info:
+        return {"error": "Strategy not found"}
+    return info
+
+
+# In-memory storage for backtest runs
+_backtest_runs: Dict[str, Dict] = {}
+
+
 @api_router.get("/dry-run/status")
 async def get_dry_run_status():
     """Get current dry-run mode status."""
     import os
     return {"dry_run_enabled": os.getenv("DRY_RUN", "true").lower() == "true"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paper Trading API
+# ─────────────────────────────────────────────────────────────────────────────
+
+_paper_broker: Optional[Any] = None
+
+
+def get_paper_broker() -> Any:
+    """Get or create paper broker"""
+    global _paper_broker
+    if _paper_broker is None:
+        from data_feeder import PaperBroker
+        _paper_broker = PaperBroker(initial_cash=100000)
+    return _paper_broker
+
+
+@api_router.post("/paper/order")
+async def submit_paper_order(request: Dict):
+    """Submit a paper trading order"""
+    broker = get_paper_broker()
+    
+    from data_feeder import OrderSide, OrderType
+    side = OrderSide(request.get("side", "buy"))
+    order_type = OrderType(request.get("order_type", "market"))
+    
+    order = await broker.submit_order(
+        symbol=request["symbol"],
+        side=side,
+        quantity=request["quantity"],
+        order_type=order_type,
+        price=request.get("price"),
+        stop_price=request.get("stop_price")
+    )
+    
+    # Auto-execute for market orders
+    if order_type == OrderType.MARKET:
+        await broker.execute_order(order)
+    
+    return {
+        "order_id": order.order_id,
+        "status": order.status.value,
+        "symbol": order.symbol,
+        "side": order.side.value,
+        "quantity": order.quantity,
+        "filled_quantity": order.filled_quantity,
+        "avg_fill_price": order.avg_fill_price
+    }
+
+
+@api_router.get("/paper/orders")
+async def get_paper_orders():
+    """Get all paper trading orders"""
+    broker = get_paper_broker()
+    orders = list(broker.orders.values())
+    
+    return {
+        "orders": [
+            {
+                "order_id": o.order_id,
+                "symbol": o.symbol,
+                "side": o.side.value,
+                "quantity": o.quantity,
+                "price": o.price,
+                "status": o.status.value,
+                "created_at": o.created_at.isoformat()
+            }
+            for o in orders
+        ]
+    }
+
+
+@api_router.post("/paper/order/{order_id}/cancel")
+async def cancel_paper_order(order_id: str):
+    """Cancel a pending paper order"""
+    broker = get_paper_broker()
+    success = await broker.cancel_order(order_id)
+    
+    return {"success": success}
+
+
+@api_router.get("/paper/account")
+async def get_paper_account():
+    """Get paper trading account state"""
+    broker = get_paper_broker()
+    state = await broker.get_account_state()
+    
+    return {
+        "cash": state.cash,
+        "equity": state.equity,
+        "buying_power": state.buying_power,
+        "positions": [
+            {
+                "symbol": p.symbol,
+                "quantity": p.quantity,
+                "avg_cost": p.avg_cost,
+                "market_value": p.market_value,
+                "unrealized_pnl": p.unrealized_pnl,
+                "realized_pnl": p.realized_pnl
+            }
+            for p in state.positions.values()
+        ]
+    }
+
+
+@api_router.get("/paper/portfolio")
+async def get_paper_portfolio():
+    """Get portfolio analytics"""
+    from data_feeder import PortfolioAnalytics
+    
+    broker = get_paper_broker()
+    analytics = PortfolioAnalytics(broker)
+    metrics = await analytics.calculate_metrics()
+    
+    return metrics
+
+
+@api_router.post("/paper/price/{symbol}")
+async def update_paper_price(symbol: str, price: float):
+    """Update current price for a symbol (for simulation)"""
+    broker = get_paper_broker()
+    broker.update_price(symbol.upper(), price)
+    
+    return {"symbol": symbol.upper(), "price": price}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -588,6 +881,125 @@ async def toggle_kill_switch(state: bool):
     os.environ["GLOBAL_KILL_SWITCH"] = str(state).lower()
     logger.warning(f"🚨 Kill switch set to {state}")
     return {"status": f"kill switch set to {state}", "kill_switch_active": state}
+
+
+@api_router.post("/test/pulse-command")
+async def test_pulse_command(command: dict):
+    """For testing: simulate Pulse sending a command to Edge via MongoDB.
+    
+    This inserts a command into the shared `commands` collection, which
+    Edge's change stream listener will pick up and process.
+    
+    Example curl:
+        curl -X POST http://localhost:8000/api/test/pulse-command \
+          -H "Content-Type: application/json" \
+          -d '{
+            "command_type": "ORDER_FILLED",
+            "symbol": "NVDA",
+            "order_id": "test_001",
+            "fill_price": 142.35,
+            "quantity": 50,
+            "side": "BUY"
+          }'
+    """
+    from datetime import datetime
+    
+    global db
+    await db.commands.insert_one({
+        **command,
+        "timestamp": datetime.utcnow()
+    })
+    logger.info(f"📤 Test command inserted: {command.get('command_type')} | {command.get('symbol')}")
+    return {"status": "sent", "type": command.get("command_type")}
+
+
+# ====================== Pulse Integration Endpoints ======================
+
+@api_router.get("/pulse/health")
+async def get_pulse_health():
+    """Get Pulse connection health status.
+    
+    Returns circuit breaker state, failure count, retry queue status.
+    """
+    sched = _require_scheduler()
+    if hasattr(sched, 'pulse'):
+        return await sched.pulse.health_check_detailed()
+    return {"error": "Pulse not configured"}
+
+
+@api_router.get("/pulse/status")
+async def get_pulse_status():
+    """Get Pulse availability and connection state."""
+    sched = _require_scheduler()
+    if hasattr(sched, 'pulse'):
+        return {
+            "available": sched.pulse.pulse_available,
+            "circuit_state": sched.pulse.state.name,
+            "base_url": sched.pulse.base_url,
+        }
+    return {"error": "Pulse not configured"}
+
+
+@api_router.get("/pulse/positions")
+async def get_pulse_positions():
+    """Get all positions from DecisionEngine (synced from Pulse)."""
+    sched = _require_scheduler()
+    if hasattr(sched, 'decisions'):
+        return sched.decisions.get_all_positions()
+    return {}
+
+
+@api_router.get("/pulse/positions/{symbol}")
+async def get_pulse_position(symbol: str):
+    """Get position for a specific symbol from DecisionEngine."""
+    sched = _require_scheduler()
+    if hasattr(sched, 'decisions'):
+        position = sched.decisions.get_position(symbol)
+        if position:
+            return position
+        return {"status": "no_position", "symbol": symbol}
+    return {"error": "Decision engine not configured"}
+
+
+@api_router.get("/pulse/queue")
+async def get_pulse_queue():
+    """Get retry queue status for failed decisions."""
+    sched = _require_scheduler()
+    if hasattr(sched, 'pulse'):
+        return sched.pulse.queue_stats()
+    return {"error": "Pulse not configured"}
+
+
+@api_router.get("/pulse/account")
+async def get_pulse_account():
+    """Get account status from Pulse (buying power, equity, etc.)."""
+    sched = _require_scheduler()
+    if hasattr(sched, 'pulse'):
+        account = await sched.pulse.get_account_status()
+        if account:
+            return account
+        return {"status": "unavailable"}
+    return {"error": "Pulse not configured"}
+
+
+@api_router.post("/pulse/emergency-exit/{symbol}")
+async def pulse_emergency_exit(symbol: str, reason: str = "Manual trigger"):
+    """Trigger emergency exit for a symbol via Pulse."""
+    sched = _require_scheduler()
+    if hasattr(sched, 'pulse'):
+        result = await sched.pulse.send_emergency_exit(symbol.upper(), reason)
+        return {"status": "sent" if result else "failed", "symbol": symbol, "reason": reason}
+    return {"error": "Pulse not configured"}
+
+
+@api_router.post("/pulse/trailing-stop/{symbol}")
+async def pulse_enable_trailing(symbol: str, percent: float = 1.5):
+    """Enable trailing stop for a symbol via Pulse."""
+    sched = _require_scheduler()
+    if hasattr(sched, 'pulse'):
+        result = await sched.pulse.enable_trailing_stop(symbol.upper(), percent)
+        return {"status": "sent" if result else "failed", "symbol": symbol, "percent": percent}
+    return {"error": "Pulse not configured"}
 
 
 @api_router.get("/orb/{symbol}")
