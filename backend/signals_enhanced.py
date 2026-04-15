@@ -57,7 +57,6 @@ from metrics import (
     edge_volume_ratio,
     edge_volume_zscore,
     edge_pattern_detected,
-    edge_pattern_detected_total,
     edge_pattern_confidence,
     edge_pattern_active,
     edge_multi_timeframe_alignment,
@@ -1196,7 +1195,7 @@ class SignalEngineEnhanced:
         for p in patterns:
             if p.detected:
                 # Total detections
-                edge_pattern_detected_total.labels(
+                edge_pattern_detected.labels(
                     symbol=symbol,
                     pattern=p.pattern_type.value,
                     direction=p.direction.value,
@@ -1272,7 +1271,7 @@ class SignalEngineEnhanced:
             # Volatility surge
             volatility_pct = indicators.get('volatility_percentile', 0)
             if volatility_pct > 80:
-                edge_volatility_surge_total.labels(symbol=symbol).inc()
+                edge_volatility_surge.labels(symbol=symbol).inc()
         
         # Multi-timeframe alignment (placeholder - would be computed with HTF data)
         edge_multi_timeframe_alignment.labels(symbol=symbol).set(0)
