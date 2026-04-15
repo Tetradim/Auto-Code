@@ -26,6 +26,7 @@ from price_fetcher import PriceFetcher
 from pulse_client import PulseClient
 from scheduler import EvaluationScheduler
 from signals import SignalEngine
+from alert_handler import router as alert_handler_router, shutdown as alert_handler_shutdown
 
 # NEW: Resilience & persistence modules
 from state_persistence import StatePersistence, IdempotencyManager
@@ -299,6 +300,7 @@ async def lifespan(app: FastAPI):
             await scheduler_task
         except asyncio.CancelledError:
             pass
+    await alert_handler_shutdown()  # close alert handler HTTP session
     await pulse_client.aclose()   # release httpx connection pool
     _mongo_client.close()
     logger.info("👋 Sentinel Edge stopped")
@@ -1189,6 +1191,9 @@ app.include_router(api_router)
 
 # Alertmanager webhook receiver — /api/webhook/alert, /api/webhook/health
 app.include_router(webhook_router, prefix="/api")
+
+# Prometheus Alertmanager webhook receiver — /alerts
+app.include_router(alert_handler_router, prefix="")
 
 # Trade export endpoints — /export/trades, /export/pnl
 app.include_router(export_router)

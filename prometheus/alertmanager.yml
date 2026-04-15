@@ -31,6 +31,29 @@ route:
       repeat_interval: 30m
       continue: false
 
+    # 1b. Edge webhook actions → Sentinel Edge /alerts endpoint
+    # Handles BearishClusterOverride, add_ticker, remove_ticker, global_risk_reduction
+    - matchers:
+        - action = "global_risk_reduction"
+      receiver: 'edge-webhook'
+      group_wait: 5s
+      continue: true
+    - matchers:
+        - action = "bearish_cluster"
+      receiver: 'edge-webhook'
+      group_wait: 5s
+      continue: true
+    - matchers:
+        - action = "add_ticker"
+      receiver: 'edge-webhook'
+      group_wait: 10s
+      continue: true
+    - matchers:
+        - action = "remove_ticker"
+      receiver: 'edge-webhook'
+      group_wait: 10s
+      continue: true
+
     # 2. Strong / very-high correlation clusters → notify trading team
     - matchers:
         - alertname =~ ".*CorrelationCluster"
@@ -66,6 +89,18 @@ receivers:
       - url: 'http://sentinel-edge:8001/api/webhook/pulse-override'
         send_resolved: true
         max_alerts: 10
+        http_config:
+          basic_auth:
+            username: 'sentinel-edge'
+            password: '$WEBHOOK_SECRET'
+
+  # Sentinel Edge webhook — receives Alertmanager alerts and triggers Pulse actions
+  # This handles BearishClusterOverride, global risk reduction, ticker add/remove, etc.
+  - name: 'edge-webhook'
+    webhook_configs:
+      - url: 'http://sentinel-edge:8000/alerts'
+        send_resolved: true
+        max_alerts: 20
         http_config:
           basic_auth:
             username: 'sentinel-edge'
