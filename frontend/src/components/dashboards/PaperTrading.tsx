@@ -255,7 +255,7 @@ export function PaperTrading() {
                 <label className="block text-sm text-gray-400 mb-1">Order Type</label>
                 <select
                   value={formData.orderType}
-                  onChange={(e) => setFormData({ ...formData, orderType: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, orderType: e.target.value as 'market' | 'limit' })}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
                 >
                   <option value="market">Market</option>

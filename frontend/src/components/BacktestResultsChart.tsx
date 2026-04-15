@@ -25,6 +25,13 @@ interface BacktestResult {
   win_rate: number;
   max_drawdown_pct: number;
   symbol: string;
+  monte_carlo?: {
+    simulations: number;
+    median_final_equity: number;
+    worst_case_equity: number;
+    probability_of_profit: number;
+    mean_max_drawdown: number;
+  };
 }
 
 const BacktestResultsChart: React.FC<{ results: BacktestResult }> = ({ results }) => {
@@ -122,8 +129,8 @@ const BacktestResultsChart: React.FC<{ results: BacktestResult }> = ({ results }
           <Tooltip
             contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3b82f6' }}
             labelStyle={{ color: '#a1a1aa' }}
-            formatter={(value: number, name: string) => [
-              name === 'equity' ? `$${value.toLocaleString()}` : `${value}%`,
+            formatter={(value: any, name: any) => [
+              name === 'equity' ? `$${value?.toLocaleString()}` : `${value}%`,
               name === 'equity' ? 'Equity' : 'Drawdown',
             ]}
           />

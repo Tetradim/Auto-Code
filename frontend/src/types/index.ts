@@ -73,3 +73,36 @@ export interface CorrelationCluster {
   score?: number;
   timestamp: string;
 }
+
+export interface MonteCarloResult {
+  simulations: number;
+  median_final_equity: number;
+  worst_case_equity: number;
+  probability_of_profit: number;
+  mean_max_drawdown: number;
+}
+
+export interface BacktestResult {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  initial_capital: number;
+  final_equity: number;
+  total_return_pct: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate_pct: number;
+  avg_win: number;
+  avg_loss: number;
+  profit_factor: number;
+  max_drawdown_pct: number;
+  sharpe_ratio: number;
+  sortino_ratio: number;
+  calmar_ratio: number;
+  avg_trade_return_pct: number;
+  avg_holding_period_minutes: number;
+  consecutive_wins: number;
+  consecutive_losses: number;
+  monte_carlo?: MonteCarloResult;
+}

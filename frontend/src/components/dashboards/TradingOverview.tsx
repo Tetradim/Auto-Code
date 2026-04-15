@@ -299,3 +299,5 @@ export const TradingOverview: React.FC = () => {
     </div>
   );
 };
+// Alias for backward compatibility
+export { TradingOverview as HealthDashboard };

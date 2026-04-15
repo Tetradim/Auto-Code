@@ -8,7 +8,7 @@ import { PaperTrading } from './components/dashboards/PaperTrading';
 import { PortfolioAnalytics } from './components/dashboards/PortfolioAnalytics';
 import { SettingsDashboard } from './components/dashboards/SettingsDashboard';
 import { TutorialsDashboard } from './components/tutorials';
-import { HealthDashboard } from './components';
+import { HealthDashboard } from './components/dashboards/TradingOverview';
 import { useStore } from './store/useStore';
 import { api } from './lib/api';
 

@@ -152,7 +152,7 @@ export function PortfolioAnalytics() {
                 </Pie>
                 <Tooltip
                   contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px' }}
-                  formatter={(value: number) => `$${value.toLocaleString()}`}
+                  formatter={(value: any) => `$${(value as number)?.toLocaleString()}`}
                 />
                 <Legend />
               </PieChart>
@@ -174,7 +174,7 @@ export function PortfolioAnalytics() {
                 <YAxis stroke="#6b7280" />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px' }}
-                  formatter={(value: number) => `$${value.toFixed(2)}`}
+                  formatter={(value: any) => `$${(value as number)?.toFixed(2)}`}
                 />
                 <Legend />
                 <Bar dataKey="unrealized" name="Unrealized" fill="#4ade80" />
