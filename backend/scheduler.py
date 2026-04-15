@@ -227,6 +227,59 @@ class EvaluationScheduler:
                 volume_zscore=volume_zscore,
             )
 
+            # ── 5b. Pattern detection via SignalEngineEnhanced ─────────────────
+            pattern_impact = 0.0
+            try:
+                # Get price data for pattern analysis
+                if ohlcv_data is not None and not ohlcv_data.empty:
+                    from signals_enhanced import get_signal_engine
+                    
+                    # Get or create enhanced signal engine
+                    pattern_engine = get_signal_engine(
+                        enable_talib=True,
+                        multi_timeframe=False
+                    )
+                    
+                    # Analyze for patterns
+                    analysis = await pattern_engine.analyze(
+                        symbol, ohlcv_data, timeframe="15m"
+                    )
+                    
+                    # Convert detected patterns to observations and add to DecisionEngine
+                    if analysis.patterns:
+                        from shared.observations import create_pattern_observation
+                        
+                        for pattern in analysis.patterns:
+                            if pattern.detected and pattern.confidence > 0.5:
+                                obs = create_pattern_observation(
+                                    symbol=symbol,
+                                    pattern_results=[pattern],
+                                    source="EDGE_PATTERNS"
+                                )
+                                self.decisions.add_observation(obs)
+                                
+                                # Accumulate pattern impact
+                                if pattern.direction.name == "BULLISH":
+                                    pattern_impact += pattern.confidence * pattern.strength / 100
+                                elif pattern.direction.name == "BEARISH":
+                                    pattern_impact -= pattern.confidence * pattern.strength / 100
+                                
+                                logger.debug(
+                                    f"🔍 {symbol}: Pattern {pattern.pattern_type.value} "
+                                    f"detected ({pattern.confidence:.2f} conf, {pattern.direction.name})"
+                                )
+                        
+                        # Apply pattern impact to signal strength
+                        if pattern_impact != 0.0:
+                            signal_strength = signal_strength + (pattern_impact * 1.0)
+                            logger.info(
+                                f"📊 {symbol}: Pattern impact {pattern_impact:+.2f} applied "
+                                f"to signal ({signal_strength - pattern_impact:.2f} -> {signal_strength:.2f})"
+                            )
+                            
+            except Exception as e:
+                logger.debug(f"Pattern detection failed for {symbol}: {e}")
+
             # ── 6. Position state (DecisionEngine: synced from Pulse via Change Stream)
             # Get real position state from DecisionEngine which receives updates
             # from Pulse via MongoDB Change Stream (ORDER_FILLED, POSITION_UPDATE)
