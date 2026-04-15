@@ -191,6 +191,7 @@ class BacktestReportRequest(BaseModel):
 async def lifespan(app: FastAPI):
     """Wire all components, start background tasks, then tear down cleanly."""
     global scheduler, scheduler_task, edge
+    global state_persistence, idempotency_manager, audit_trail, drift_detector, config_hasher, audit_logger
 
     logger.info("🚀 Starting Sentinel Edge...")
 
@@ -286,7 +287,6 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Shutting down Sentinel Edge...")
     
     # Cleanup new resilience modules
-    global state_persistence, idempotency_manager, audit_trail, drift_detector
     state_persistence.close()
     idempotency_manager.close()
     audit_trail.close()
@@ -1162,9 +1162,9 @@ async def list_commands(limit: int = 10):
     """List recent commands in the Command Bus."""
     from shared.commands import COMMANDS_COLLECTION
     
-    commands = await db[COMMANDS_COLLECTION].find()
-        .sort("timestamp", -1)
-        .limit(limit)
+    commands = await db[COMMANDS_COLLECTION].find() \
+        .sort("timestamp", -1) \
+        .limit(limit) \
         .to_list(limit)
     
     return {
