@@ -163,6 +163,9 @@ jobs:
           PrivilegesRequired=admin
           WizardStyle=modern
           DisableProgramGroupPage=yes
+          ; Required so {commondesktop} uninstall shortcut resolves correctly
+          UninstallDisplayName=Sentinel Edge
+          UninstallDisplayIcon={app}\SentinelEdge.exe
 
           [Files]
           Source: "backend\dist\SentinelEdge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
@@ -173,12 +176,16 @@ jobs:
           Name: "{app}\data"; Permissions: users-full
 
           [Icons]
-          Name: "{group}\Sentinel Edge"; Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"
+          ; ── Start Menu shortcuts ──────────────────────────────────────────────
+          Name: "{group}\Sentinel Edge";           Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"
           Name: "{group}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}"
-          Name: "{commondesktop}\Sentinel Edge"; Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"; Tasks: desktopicon
+
+          ; ── Desktop shortcuts (both created unconditionally) ──────────────────
+          Name: "{commondesktop}\Sentinel Edge";           Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"; Tasks: desktopicon
+          Name: "{commondesktop}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}";                WorkingDir: "{app}"; Tasks: desktopicon
 
           [Tasks]
-          Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
+          Name: "desktopicon"; Description: "Create desktop shortcuts (Launch + Uninstall)"; GroupDescription: "Additional icons:"; Flags: checked
 
           [Run]
           Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated
