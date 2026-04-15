@@ -185,7 +185,7 @@ jobs:
           Name: "{commondesktop}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}";                WorkingDir: "{app}"; Tasks: desktopicon
 
           [Tasks]
-          Name: "desktopicon"; Description: "Create desktop shortcuts (Launch + Uninstall)"; GroupDescription: "Additional icons:"; Flags: checked
+          Name: "desktopicon"; Description: "Create desktop shortcuts (Launch + Uninstall)"; GroupDescription: "Additional icons:"
 
           [Run]
           Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated
