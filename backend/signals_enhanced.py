@@ -57,7 +57,19 @@ from metrics import (
     edge_volume_ratio,
     edge_volume_zscore,
     edge_pattern_detected,
+    edge_pattern_detected_total,
+    edge_pattern_confidence,
+    edge_pattern_active,
+    edge_multi_timeframe_alignment,
+    edge_rsi_oversold_total,
+    edge_rsi_overbought_total,
+    edge_macd_crossover_total,
+    edge_support_level,
+    edge_resistance_level,
+    edge_consolidation_detected,
+    edge_volatility_surge,
     edge_confidence_score,
+    edge_signal_quality,
 )
 
 logger = logging.getLogger(__name__)
@@ -437,7 +449,7 @@ class SignalEngineEnhanced:
         trend = self._determine_trend(indicators)
         
         # Update metrics
-        self._update_metrics(symbol, patterns, confidence, trend)
+        self._update_metrics(symbol, patterns, confidence, trend, indicators)
         
         return AnalysisResult(
             symbol=symbol,
@@ -1166,21 +1178,104 @@ class SignalEngineEnhanced:
         symbol: str,
         patterns: List[PatternResult],
         confidence: ConfidenceScore,
-        trend: TrendDirection
+        trend: TrendDirection,
+        indicators: Optional[dict] = None
     ):
         """Update Prometheus metrics"""
+        # Core metrics
         edge_signal_strength.labels(symbol=symbol).set(confidence.overall * 10 - 5)
         edge_trend_direction.labels(symbol=symbol).set(trend.value)
         edge_volume_ratio.labels(symbol=symbol).set(confidence.volume_ratio)
+        edge_confidence_score.labels(symbol=symbol).set(confidence.overall)
+        edge_signal_quality.labels(symbol=symbol).set(
+            confidence.overall * confidence.volume_ratio * confidence.trend_score * 10
+        )
         
+        # Pattern detection metrics
+        active_patterns = []
         for p in patterns:
             if p.detected:
-                edge_pattern_detected.labels(
+                # Total detections
+                edge_pattern_detected_total.labels(
                     symbol=symbol,
-                    pattern=p.pattern_type.value
+                    pattern=p.pattern_type.value,
+                    direction=p.direction.value,
+                    timeframe=self.default_timeframe
                 ).inc()
+                
+                # Pattern confidence
+                edge_pattern_confidence.labels(
+                    symbol=symbol,
+                    pattern=p.pattern_type.value,
+                    timeframe=self.default_timeframe
+                ).set(p.confidence)
+                
+                # Pattern active
+                edge_pattern_active.labels(
+                    symbol=symbol,
+                    pattern=p.pattern_type.value,
+                    timeframe=self.default_timeframe
+                ).set(1)
+                
+                active_patterns.append(p.pattern_type.value)
         
-        edge_confidence_score.labels(symbol=symbol).set(confidence.overall)
+        # Set inactive for patterns not detected
+        all_patterns = [p.value for p in PatternType] if hasattr(PatternType, '__members__') else []
+        for pat in all_patterns:
+            if pat not in active_patterns:
+                edge_pattern_active.labels(
+                    symbol=symbol,
+                    pattern=pat,
+                    timeframe=self.default_timeframe
+                ).set(0)
+        
+        # RSI metrics
+        if indicators:
+            rsi = indicators.get('rsi_current', 50)
+            if rsi < 30:
+                edge_rsi_oversold_total.labels(symbol=symbol).inc()
+            elif rsi > 70:
+                edge_rsi_overbought_total.labels(symbol=symbol).inc()
+            
+            # MACD crossover
+            macd_hist = indicators.get('macd_hist', np.array([0]))
+            if len(macd_hist) > 1:
+                prev_hist = macd_hist[-2]
+                curr_hist = macd_hist[-1]
+                if prev_hist < 0 and curr_hist > 0:
+                    edge_macd_crossover_total.labels(
+                        symbol=symbol, direction="bullish"
+                    ).inc()
+                elif prev_hist > 0 and curr_hist < 0:
+                    edge_macd_crossover_total.labels(
+                        symbol=symbol, direction="bearish"
+                    ).inc()
+            
+            # Support/Resistance
+            support = indicators.get('support_level')
+            resistance = indicators.get('resistance_level')
+            if support:
+                edge_support_level.labels(
+                    symbol=symbol, timeframe=self.default_timeframe
+                ).set(support)
+            if resistance:
+                edge_resistance_level.labels(
+                    symbol=symbol, timeframe=self.default_timeframe
+                ).set(resistance)
+            
+            # Consolidation
+            consolidation = indicators.get('consolidation', False)
+            edge_consolidation_detected.labels(
+                symbol=symbol, timeframe=self.default_timeframe
+            ).set(1 if consolidation else 0)
+            
+            # Volatility surge
+            volatility_pct = indicators.get('volatility_percentile', 0)
+            if volatility_pct > 80:
+                edge_volatility_surge_total.labels(symbol=symbol).inc()
+        
+        # Multi-timeframe alignment (placeholder - would be computed with HTF data)
+        edge_multi_timeframe_alignment.labels(symbol=symbol).set(0)
 
 
 # ============================================================================

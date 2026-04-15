@@ -410,3 +410,107 @@ strategy_versions_total = Gauge(
     "Total strategy versions stored",
     ["strategy"]
 )
+
+# ═════════════════════════════════════════════════════════════════════
+# PATTERN RECOGNITION METRICS
+# ═════════════════════════════════════════════════════════════════════
+
+edge_pattern_detected = Counter(
+    "edge_pattern_detected_total",
+    "Total pattern detections by type",
+    ["symbol", "pattern", "direction", "timeframe"]
+)
+
+edge_pattern_confidence = Gauge(
+    "edge_pattern_confidence",
+    "Confidence score for detected pattern (0-1)",
+    ["symbol", "pattern", "timeframe"]
+)
+
+edge_pattern_active = Gauge(
+    "edge_pattern_active",
+    "Currently active pattern for symbol (1=active)",
+    ["symbol", "pattern", "timeframe"]
+)
+
+edge_multi_timeframe_alignment = Gauge(
+    "edge_multi_timeframe_alignment",
+    "Multi-timeframe alignment score (-1 to 1)",
+    ["symbol"]
+)
+
+edge_chart_pattern_count = Gauge(
+    "edge_chart_pattern_count",
+    "Number of active complex chart patterns",
+    ["symbol", "pattern_type"]
+)
+
+edge_rsi_oversold_count = Counter(
+    "edge_rsi_oversold_total",
+    "Total RSI oversold (<30) detections",
+    ["symbol"]
+)
+
+edge_rsi_overbought_count = Counter(
+    "edge_rsi_overbought_total",
+    "Total RSI overbought (>70) detections",
+    ["symbol"]
+)
+
+edge_macd_crossover_count = Counter(
+    "edge_macd_crossover_total",
+    "Total MACD crossovers detected",
+    ["symbol", "direction"]
+)
+
+edge_support_level = Gauge(
+    "edge_support_level",
+    "Detected support price level",
+    ["symbol", "timeframe"]
+)
+
+edge_resistance_level = Gauge(
+    "edge_resistance_level",
+    "Detected resistance price level",
+    ["symbol", "timeframe"]
+)
+
+edge_consolidation_detected = Gauge(
+    "edge_consolidation_detected",
+    "Consolidation detected (1=yes, 0=no)",
+    ["symbol", "timeframe"]
+)
+
+edge_volatility_surge = Counter(
+    "edge_volatility_surge_total",
+    "Total volatility surge events",
+    ["symbol"]
+)
+
+# ═════════════════════════════════════════════════════════════════════
+# SIGNAL QUALITY METRICS
+# ═════════════════════════════════════════════════════════════════════
+
+edge_confidence_score = Gauge(
+    "edge_confidence_score",
+    "Weighted confidence score (0-1)",
+    ["symbol"]
+)
+
+edge_signal_quality = Gauge(
+    "edge_signal_quality",
+    "Signal quality score based on multiple factors",
+    ["symbol"]
+)
+
+edge_observation_impact = Gauge(
+    "edge_observation_impact",
+    "Impact of observation on signal adjustment",
+    ["symbol", "observation_type"]
+)
+
+edge_desync_warnings = Counter(
+    "edge_desync_warnings_total",
+    "Total observation desync warnings",
+    ["severity"]
+)

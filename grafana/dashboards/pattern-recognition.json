@@ -1,0 +1,202 @@
+{
+  "title": "Pattern Recognition Analytics",
+  "uid": "sentinel-pattern-recognition",
+  "tags": ["sentinel", "patterns", "technical-analysis"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "templating": {
+    "list": [
+      { "name": "symbol", "type": "query", "datasource": "Prometheus", "query": "label_values(edge_pattern_detected_total, symbol)", "multi": true, "includeAll": true },
+      { "name": "timeframe", "type": "custom", "query": "1m,5m,15m,30m,1h,1d", "current": { "text": "15m", "value": "15m" } },
+      { "name": "pattern", "type": "query", "datasource": "Prometheus", "query": "label_values(edge_pattern_detected_total, pattern)", "multi": true, "includeAll": true },
+      { "name": "severity", "type": "custom", "query": "critical,warning,info", "current": { "text": "warning", "value": "warning" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Patterns Detected (24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "sum(increase(edge_pattern_detected_total{symbol=~\"$symbol\"}[24h]))" }],
+      "options": { "colorMode": "value", "graphMode": "area", "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 50 }] } } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active Patterns",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "sum(edge_pattern_active{symbol=~\"$symbol\"})" }],
+      "options": { "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 15 }] } } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Avg Pattern Confidence",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "avg(edge_pattern_confidence{symbol=~\"$symbol\",pattern=~\"$pattern\"})" }],
+      "options": { "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 0.8 }] } } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Multi-Timeframe Alignment",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "avg(edge_multi_timeframe_alignment{symbol=~\"$symbol\"})" }],
+      "options": { "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": -1, "max": 1, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 0.5 }] } } }
+    },
+    {
+      "id": 5,
+      "type": "bargauge",
+      "title": "Pattern Detection by Type",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (pattern) (increase(edge_pattern_detected_total{symbol=~\"$symbol\"}[24h]))", "legendFormat": "{{pattern}}" }
+      ],
+      "options": { "displayMode": "gradient", "showUnfilled": true, "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "id": 6,
+      "type": "piechart",
+      "title": "Pattern Distribution",
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (pattern) (edge_pattern_detected_total{symbol=~\"$symbol\"})", "legendFormat": "{{pattern}}" }
+      ],
+      "options": { "pieType": "donut", "displayLabelsWithLegend": true },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Pattern Detection Over Time",
+      "gridPos": { "h": 8, "w": 12, "x": 20, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(edge_pattern_detected_total{symbol=~\"$symbol\"}[5m]))", "legendFormat": "Total" },
+        { "refId": "B", "expr": "sum by (pattern) (increase(edge_pattern_detected_total{symbol=~\"$symbol\"}[5m]))", "legendFormat": "{{pattern}}" }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Pattern Confidence Timeline",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "avg by (pattern) (edge_pattern_confidence{symbol=~\"$symbol\",timeframe=~\"$timeframe\"})", "legendFormat": "{{pattern}}" }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Multi-Timeframe Alignment",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "edge_multi_timeframe_alignment{symbol=~\"$symbol\"}", "legendFormat": "{{symbol}}" }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "short", "min": -1, "max": 1, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 0.5 }] } }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Recent Pattern Detections",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, edge_pattern_detected_total{symbol=~\"$symbol\"})", "format": "table", "legendFormat": "{{pattern}}" }
+      ],
+      "options": { "showHeader": true, "footer": { "show": true, "reducer": ["sum"] } }
+    },
+    {
+      "id": 11,
+      "type": "gauge",
+      "title": "RSI Oversold Signals",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 20 },
+      "targets": [{ "refId": "A", "expr": "sum(increase(edge_rsi_oversold_total{symbol=~\"$symbol\"}[24h]))" }],
+      "options": { "showThresholdMarkers": true, "showUnfilled": true },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 10 }] } } }
+    },
+    {
+      "id": 12,
+      "type": "gauge",
+      "title": "RSI Overbought Signals",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 20 },
+      "targets": [{ "refId": "A", "expr": "sum(increase(edge_rsi_overbought_total{symbol=~\"$symbol\"}[24h]))" }],
+      "options": { "showThresholdMarkers": true, "showUnfilled": true },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 10 }] } } }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Support/Resistance Levels",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "refId": "A", "expr": "edge_support_level{symbol=~\"$symbol\",timeframe=~\"$timeframe\"}", "legendFormat": "{{symbol}} Support" },
+        { "refId": "B", "expr": "edge_resistance_level{symbol=~\"$symbol\",timeframe=~\"$timeframe\"}", "legendFormat": "{{symbol}} Resistance" }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "currency", "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "MACD Crossovers",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (direction) (increase(edge_macd_crossover_total{symbol=~\"$symbol\"}[24h]))", "legendFormat": "{{direction}}" }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Consolidation Alerts",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 36 },
+      "targets": [{ "refId": "A", "expr": "sum(edge_consolidation_detected{symbol=~\"$symbol\",timeframe=~\"$timeframe\"})" }],
+      "options": { "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 3 }] } } }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Volatility Surges",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 36 },
+      "targets": [{ "refId": "A", "expr": "sum(increase(edge_volatility_surge_total{symbol=~\"$symbol\"}[24h]))" }],
+      "options": { "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3 }, { "color": "red", "value": 10 }] } } }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Confidence Score by Symbol",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        { "refId": "A", "expr": "edge_confidence_score{symbol=~\"$symbol\"}", "legendFormat": "{{symbol}}" }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 0.8 }] } }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Signal Quality",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "targets": [
+        { "refId": "A", "expr": "edge_signal_quality{symbol=~\"$symbol\"}", "legendFormat": "{{symbol}}" }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 5 }, { "color": "green", "value": 8 }] } } }
+    }
+  ]
+}
