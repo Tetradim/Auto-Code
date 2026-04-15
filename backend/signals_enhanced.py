@@ -144,6 +144,11 @@ class PatternType(str, Enum):
     DOUBLE_TOP = "DOUBLE_TOP"        # Bearish reversal (M shape)
     HEAD_SHOULDERS = "HEAD_SHOULDERS"  # Bearish reversal
     INVERSE_HEAD_SHOULDERS = "INVERSE_HEAD_SHOULDERS"  # Bullish reversal
+    
+    # Indicator-based patterns
+    RSI_OVERBOUGHT = "RSI_OVERBOUGHT"
+    RSI_OVERSOLD = "RSI_OVERSOLD"
+    MACD_CROSS = "MACD_CROSS"
 
 
 class TrendDirection(Enum):
