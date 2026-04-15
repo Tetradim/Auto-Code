@@ -9,6 +9,8 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
+import aiohttp
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -31,13 +33,13 @@ class PulseClient:
     
     def __init__(self, base_url: str = PULSE_URL):
         self.base_url = base_url
-        self._session: Optional[asyncio.ClientSession] = None
+        self._session: Optional[aiohttp.ClientSession] = None
     
-    async def _get_session(self) -> asyncio.ClientSession:
-        if self._session is None or self._session.is_closed:
-            self._session = asyncio.ClientSession(
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
                 base_url=self.base_url,
-                timeout=asyncio.ClientTimeout(total=10.0)
+                timeout=aiohttp.ClientTimeout(total=10.0)
             )
         return self._session
     
