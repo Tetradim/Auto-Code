@@ -6,7 +6,13 @@ from collections import defaultdict, deque
 from enum import Enum
 
 from signals import TrendDirection
-from metrics import edge_decision_total, edge_consecutive_losses, edge_win_rate
+from metrics import (
+    edge_decision_total, 
+    edge_consecutive_losses, 
+    edge_win_rate,
+    edge_confidence_score,
+    edge_signal_quality
+)
 
 from shared.commands import (
     OrderFilledCommand,
@@ -188,6 +194,7 @@ class DecisionEngine:
         symbol: str,
         trend: TrendDirection,
         signal_strength: float,
+        confidence: float = 1.0,  # 0.0 to 1.0 - signal quality gate
         pnl: float = 0.0,
         pnl_pct: float = 0.0,
         current_drawdown: float = 0.0,
@@ -198,6 +205,23 @@ class DecisionEngine:
         trailing_stop_profit_threshold: Optional[float] = None,
     ) -> Decision:
         """Main decision method - now fully aware of real position state via Pulse feedback."""
+        
+        # ── Confidence gate: Skip low-quality signals ───────────────────────────
+        MIN_CONFIDENCE = 0.6
+        if confidence < MIN_CONFIDENCE:
+            logger.info(
+                f"🛡️ {symbol}: LOW CONFIDENCE ({confidence:.2f} < {MIN_CONFIDENCE}) → HOLD"
+            )
+            edge_decision_total.labels(symbol=symbol, decision=Decision.HOLD.value).inc()
+            return Decision.HOLD
+        
+        # Scale signal strength based on confidence (0.6-1.0 maps to ~0.7-1.0 factor)
+        confidence_factor = 0.7 + (confidence - MIN_CONFIDENCE) * 0.75  # 0.6→0.7, 1.0→1.0
+        effective_signal = signal_strength * confidence_factor
+        
+        # Track confidence metrics
+        edge_confidence_score.labels(symbol=symbol).set(confidence)
+        edge_signal_quality.labels(symbol=symbol).set(confidence_factor)
         
         max_losses = (
             int(max_consecutive_losses)
@@ -265,7 +289,7 @@ class DecisionEngine:
             # Strong move while already trailing — auto-tighten to 0.5 %
             if (
                 trailing_enabled
-                and signal_strength >= 7.0
+                and effective_signal >= 7.0
                 and pnl_pct > 5.0
             ):
                 logger.info(
@@ -285,9 +309,9 @@ class DecisionEngine:
                 return decision
             
             # Trend reversing - tighten stops
-            if trend == TrendDirection.BEARISH and signal_strength < -3.0:
+            if trend == TrendDirection.BEARISH and effective_signal < -3.0:
                 logger.warning(
-                    f"⚠️ {symbol}: Bearish reversal detected (strength: {signal_strength:.2f})"
+                    f"⚠️ {symbol}: Bearish reversal detected (strength: {effective_signal:.2f})"
                 )
                 decision = Decision.TIGHTEN_STOP
                 edge_decision_total.labels(symbol=symbol, decision=decision.value).inc()
@@ -298,13 +322,13 @@ class DecisionEngine:
         # ═══════════════════════════════════════════════════════════
         
         if trend == TrendDirection.BULLISH:
-            if signal_strength >= 5.0:
+            if effective_signal >= 5.0:
                 # Strong bullish signal - buy
                 logger.info(
-                    f"🚀 {symbol}: Strong bullish signal (strength: {signal_strength:.2f}) - BUY"
+                    f"🚀 {symbol}: Strong bullish signal (strength: {effective_signal:.2f}) - BUY"
                 )
                 decision = Decision.BUY
-            elif signal_strength >= 3.0:
+            elif effective_signal >= 3.0:
                 # Moderate bullish - buy if not too risky
                 if self.consecutive_losses[symbol] < 2:
                     decision = Decision.BUY
@@ -314,13 +338,13 @@ class DecisionEngine:
                 decision = Decision.HOLD
         
         elif trend == TrendDirection.BEARISH:
-            if signal_strength <= -5.0:
+            if effective_signal <= -5.0:
                 # Strong bearish - stop buying
                 logger.warning(
-                    f"🔻 {symbol}: Strong bearish signal (strength: {signal_strength:.2f}) - STOP BUYING"
+                    f"🔻 {symbol}: Strong bearish signal (strength: {effective_signal:.2f}) - STOP BUYING"
                 )
                 decision = Decision.STOP_BUYING
-            elif signal_strength <= -3.0:
+            elif effective_signal <= -3.0:
                 # Moderate bearish
                 decision = Decision.STOP_BUYING if has_position else Decision.HOLD
             else:

@@ -229,6 +229,7 @@ class EvaluationScheduler:
 
             # ── 5b. Pattern detection via SignalEngineEnhanced ─────────────────
             pattern_impact = 0.0
+            pattern_confidence = 1.0  # Default: full confidence if no analysis
             try:
                 # Get price data for pattern analysis
                 if ohlcv_data is not None and not ohlcv_data.empty:
@@ -244,6 +245,9 @@ class EvaluationScheduler:
                     analysis = await pattern_engine.analyze(
                         symbol, ohlcv_data, timeframe="15m"
                     )
+                    
+                    # Extract confidence for decision gate
+                    pattern_confidence = analysis.confidence.overall
                     
                     # Convert detected patterns to observations and add to DecisionEngine
                     if analysis.patterns:
@@ -309,6 +313,7 @@ class EvaluationScheduler:
                 symbol=symbol,
                 trend=trend,
                 signal_strength=signal_strength,
+                confidence=pattern_confidence,
                 pnl=pnl_dollar,
                 pnl_pct=pnl_pct,  # Real PnL from Pulse
                 current_drawdown=pos["drawdown_pct"],
