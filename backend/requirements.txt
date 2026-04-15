@@ -16,6 +16,7 @@ pymongo==4.5.0             # Sync MongoDB driver (motor dependency; kept explici
 
 # ── HTTP client ───────────────────────────────────────────────────────────────
 httpx==0.28.1              # Async HTTP — Pulse API calls, correlation overrides
+aiohttp==3.11.11           # Async HTTP client (ws_manager dependency)
 
 # ── Market data ───────────────────────────────────────────────────────────────
 # NOTE: yfinance is a web scraper, not an official data feed.
