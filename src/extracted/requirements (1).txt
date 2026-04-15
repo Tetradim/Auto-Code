@@ -1,5 +1,0 @@
-motor
-prometheus_client
-yfinance
-zoneinfo
-pandas
