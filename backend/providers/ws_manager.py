@@ -22,8 +22,7 @@ class WebSocketManager:
     def __init__(
         self,
         price_fetcher,
-        on_price_update: Callable[[str, float, float],  # symbol, price, volume
-    ],
+        on_price_update: Callable[[str, float, float], None],  # symbol, price, volume
         get_active_symbols: Optional[Callable[[], Set[str]]] = None,
     ):
         self.price_fetcher = price_fetcher
