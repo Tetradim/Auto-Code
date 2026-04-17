@@ -1221,17 +1221,22 @@ app.add_middleware(
 # Get the frontend build directory (relative to backend)
 root_dir = Path(__file__).parent.parent
 frontend_dist = root_dir / "frontend" / "dist"
+frontend_src = root_dir / "frontend" / "public"
+
+print(f"Root dir: {root_dir}")
+print(f"Frontend dist exists: {frontend_dist.exists()}")
+print(f"Frontend src exists: {frontend_src.exists()}")
 
 # Mount frontend static files if dist exists
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
     print(f"Frontend mounted from {frontend_dist}")
+elif frontend_src.exists():
+    # Mount from public for dev
+    app.mount("/", StaticFiles(directory=str(frontend_src), html=True), name="static")
+    print(f"Frontend mounted from {frontend_src} (dev mode)")
 else:
-    # Check for dev frontend path
-    frontend_src = root_dir / "frontend" / "public"
-    if frontend_src.exists():
-        app.mount("/", StaticFiles(directory=str(frontend_src), html=True), name="frontend")
-        print(f"Frontend mounted from {frontend_src} (dev mode)")
+    print("WARNING: No frontend found (tried dist and public)")
 
 
 if __name__ == "__main__":
