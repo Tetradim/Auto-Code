@@ -106,6 +106,13 @@ def _require_scheduler() -> EvaluationScheduler:
     return scheduler
 
 
+def _require_price_fetcher() -> PriceFetcher:
+    """Return the price fetcher or raise HTTP 503."""
+    if price_fetcher is None:
+        raise HTTPException(status_code=503, detail="PriceFetcher not initialised")
+    return price_fetcher
+
+
 def _enforce_rate_limit(request: Request) -> None:
     """Simple fixed-window in-memory rate limiter (per client IP)."""
     client = request.client.host if request.client else "unknown"
@@ -513,7 +520,7 @@ async def get_ticker_config(symbol: str):
 
 
 @api_router.get("/providers/health")
-async def get_providers_health(price_fetcher: PriceFetcher = Depends(get_price_fetcher)):
+async def get_providers_health(price_fetcher: PriceFetcher = Depends(_require_price_fetcher)):
     """Return health status for all price providers."""
     return price_fetcher.get_provider_health()
 
@@ -535,7 +542,7 @@ def get_backtest_engine():
 @api_router.post("/backtest")
 async def run_backtest(
     request: BacktestRequest,
-    price_fetcher: PriceFetcher = Depends(get_price_fetcher),
+    price_fetcher: PriceFetcher = Depends(_require_price_fetcher),
 ):
     """Run historical backtest for a symbol."""
     # Lazy initialization of backtest engine
@@ -855,7 +862,7 @@ def get_strategy_optimizer():
 @api_router.post("/backtest/optimize")
 async def optimize_strategy(
     request: OptimizeRequest,
-    price_fetcher: PriceFetcher = Depends(get_price_fetcher),
+    price_fetcher: PriceFetcher = Depends(_require_price_fetcher),
 ):
     """Run grid search optimization over parameter combinations."""
     global _optimizer
