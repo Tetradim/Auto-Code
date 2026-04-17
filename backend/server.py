@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from prometheus_client import REGISTRY, generate_latest
 from pydantic import BaseModel, Field
@@ -1212,6 +1213,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Frontend Static Files
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Get the frontend build directory (relative to backend)
+root_dir = Path(__file__).parent.parent
+frontend_dist = root_dir / "frontend" / "dist"
+
+# Mount frontend static files if dist exists
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    print(f"Frontend mounted from {frontend_dist}")
+else:
+    # Check for dev frontend path
+    frontend_src = root_dir / "frontend" / "public"
+    if frontend_src.exists():
+        app.mount("/", StaticFiles(directory=str(frontend_src), html=True), name="frontend")
+        print(f"Frontend mounted from {frontend_src} (dev mode)")
 
 
 if __name__ == "__main__":
