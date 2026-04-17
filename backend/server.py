@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, Body, HTTPException, Request
+from fastapi import FastAPI, APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from prometheus_client import REGISTRY, generate_latest
