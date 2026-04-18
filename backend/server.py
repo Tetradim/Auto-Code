@@ -57,10 +57,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Demo mode - runs without external dependencies
+DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")
+
 # MongoDB — client created once; motor handles pooling internally
-mongo_url = os.environ["MONGO_URL"]
-_mongo_client = AsyncIOMotorClient(mongo_url)
-db = _mongo_client[os.environ["DB_NAME"]]
+mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+try:
+    _mongo_client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=2000)
+    # Test connection
+    _mongo_client.server_info()
+    db = _mongo_client[os.environ.get("DB_NAME", "sentinel_edge")]
+    logger.info(f"MongoDB connected to {mongo_url}")
+except Exception as e:
+    if DEMO_MODE:
+        logger.warning(f"MongoDB not available in DEMO_MODE: {e}")
+        db = None
+        _mongo_client = None
+    else:
+        logger.error(f"MongoDB connection failed: {e}")
+        raise
 
 # Global singletons populated during lifespan
 scheduler: EvaluationScheduler = None
@@ -202,6 +217,9 @@ async def lifespan(app: FastAPI):
     global state_persistence, idempotency_manager, audit_trail, drift_detector, config_hasher, audit_logger
 
     logger.info("🚀 Starting Sentinel Edge...")
+    
+    if DEMO_MODE:
+        logger.info("🎯 DEMO MODE enabled - will run without MongoDB")
 
     pulse_url = os.getenv("PULSE_API_URL", "http://localhost:8002")
 
@@ -235,7 +253,11 @@ async def lifespan(app: FastAPI):
     pulse_client.start_retry_drain_loop()
 
     # SentinelEdge orchestrator — OTel tracing, WebSocket, MongoDB change stream
-    edge = SentinelEdge(db=db, pulse_url=pulse_url)
+    if db is not None:
+        edge = SentinelEdge(db=db, pulse_url=pulse_url)
+    else:
+        logger.warning("⚠️  Running in DEMO MODE - no database")
+        edge = SentinelEdge(db=None, pulse_url=pulse_url)
 
     scheduler = EvaluationScheduler(
         pulse_client=pulse_client,
@@ -245,7 +267,7 @@ async def lifespan(app: FastAPI):
         signal_engine=signal_engine,
         decision_engine=decision_engine,
         market_hours=market_hours,
-        db=db,
+        db=db,  # Can be None in demo mode
     )
     # Share the correlation engine and wire plugin discovery
     edge.set_scheduler(scheduler)
@@ -310,7 +332,8 @@ async def lifespan(app: FastAPI):
             pass
     await alert_handler_shutdown()  # close alert handler HTTP session
     await pulse_client.aclose()   # release httpx connection pool
-    _mongo_client.close()
+    if _mongo_client is not None:
+        _mongo_client.close()
     logger.info("👋 Sentinel Edge stopped")
 
 
