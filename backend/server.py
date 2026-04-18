@@ -1245,21 +1245,71 @@ app.add_middleware(
 root_dir = Path(__file__).parent.parent
 frontend_dist = root_dir / "frontend" / "dist"
 frontend_src = root_dir / "frontend" / "public"
+backend_static = root_dir / "backend" / "static"
 
 print(f"Root dir: {root_dir}")
 print(f"Frontend dist exists: {frontend_dist.exists()}")
 print(f"Frontend src exists: {frontend_src.exists()}")
+print(f"Backend static exists: {backend_static.exists()}")
 
-# Mount frontend static files if dist exists
-if frontend_dist.exists():
+# Mount frontend static files - check multiple possible locations
+frontend_mounted = False
+
+# 1. Check backend/static first (for packaged builds from workflow)
+if backend_static.exists():
+    app.mount("/", StaticFiles(directory=str(backend_static), html=True), name="static")
+    print(f"Frontend mounted from {backend_static}")
+    frontend_mounted = True
+# 2. Check frontend/dist (for local production builds)
+elif frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
     print(f"Frontend mounted from {frontend_dist}")
+    frontend_mounted = True
+# 3. Check frontend/public (for dev mode)
 elif frontend_src.exists():
-    # Mount from public for dev
     app.mount("/", StaticFiles(directory=str(frontend_src), html=True), name="static")
     print(f"Frontend mounted from {frontend_src} (dev mode)")
+    frontend_mounted = True
+# 4. None found - try to build the frontend automatically
 else:
-    print("WARNING: No frontend found (tried dist and public)")
+    print("WARNING: No frontend found - attempting to build automatically...")
+    import subprocess
+    import shutil
+    
+    # Check if npm is available
+    npm_path = shutil.which("npm")
+    if npm_path:
+        try:
+            # Install dependencies
+            result = subprocess.run(
+                ["npm", "install"],
+                cwd=str(root_dir / "frontend"),
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            if result.returncode == 0:
+                # Build the frontend
+                result = subprocess.run(
+                    ["npm", "run", "build"],
+                    cwd=str(root_dir / "frontend"),
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                if result.returncode == 0 and frontend_dist.exists():
+                    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+                    print(f"Frontend built and mounted from {frontend_dist}")
+                    frontend_mounted = True
+                else:
+                    print(f"Frontend build failed: {result.stderr}")
+            else:
+                print(f"Frontend npm install failed: {result.stderr}")
+        except Exception as e:
+            print(f"Auto-build error: {e}")
+    
+    if not frontend_mounted:
+        print("WARNING: No frontend found (tried dist, public, and auto-build)")
 
 
 if __name__ == "__main__":
