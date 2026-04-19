@@ -88,11 +88,13 @@ jobs:
           Expand-Archive -Path mongodb.zip -DestinationPath mongodb_temp -Force
           New-Item -ItemType Directory -Force -Path mongodb | Out-Null
           Copy-Item (Get-ChildItem -Path mongodb_temp -Recurse -Filter mongod.exe | Select -First 1).FullName mongodb\ -Force
+        working-directory: backend
         shell: pwsh
 
       # Download VC++ Redistributable
       - name: Download VC++
         run: Invoke-WebRequest -Uri https://aka.ms/vs/17/release/vc_redist.x64.exe -OutFile vc_redist.x64.exe
+        working-directory: backend
         shell: pwsh
 
       # Install Inno Setup
