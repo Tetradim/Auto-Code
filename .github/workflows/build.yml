@@ -169,7 +169,9 @@ jobs:
       # Build installer
       - name: Build installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+          $output = & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+          Write-Host $output
+          Get-ChildItem -Filter "*.exe" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
         shell: pwsh
 
       # Upload artifact
@@ -177,5 +179,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SentinelEdge-Setup
-          path: SentinelEdge-Setup.exe
+          path: |
+            SentinelEdge-Setup*.exe
           retention-days: 90
