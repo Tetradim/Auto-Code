@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -1243,22 +1244,37 @@ app.add_middleware(
 
 # Get the frontend build directory (relative to backend)
 root_dir = Path(__file__).parent.parent
+
+# For installed exe, also check current working directory
+if not root_dir.exists():
+    root_dir = Path.cwd()
+
 frontend_dist = root_dir / "frontend" / "dist"
 frontend_src = root_dir / "frontend" / "public"
 backend_static = root_dir / "backend" / "static"
 
+# Also check if running from installed location (exe folder)
+exe_dir = Path(sys.executable).parent if hasattr(sys, 'executable') else root_dir
+installed_static = exe_dir / "static"
+
+# Determine the actual static path - prefer backend/static, then exe folder static
+actual_static = backend_static if backend_static.exists() else installed_static
+
 print(f"Root dir: {root_dir}")
+print(f"Exe dir: {exe_dir}")
 print(f"Frontend dist exists: {frontend_dist.exists()}")
 print(f"Frontend src exists: {frontend_src.exists()}")
 print(f"Backend static exists: {backend_static.exists()}")
+print(f"Installed static exists: {installed_static.exists()}")
+print(f"Actual static path: {actual_static}")
 
 # Mount frontend static files - check multiple possible locations
 frontend_mounted = False
 
-# 1. Check backend/static first (for packaged builds from workflow)
-if backend_static.exists():
-    app.mount("/", StaticFiles(directory=str(backend_static), html=True), name="static")
-    print(f"Frontend mounted from {backend_static}")
+# 1. Check actual_static first (for packaged builds from workflow or installed exe)
+if actual_static.exists():
+    app.mount("/", StaticFiles(directory=str(actual_static), html=True), name="static")
+    print(f"Frontend mounted from {actual_static}")
     frontend_mounted = True
 # 2. Check frontend/dist (for local production builds)
 elif frontend_dist.exists():
@@ -1307,42 +1323,71 @@ else:
     
     if npm_cmd:
         print(f"Found npm: {npm_cmd}")
-        try:
-            # Install dependencies using shell=True for Windows compatibility
-            install_result = subprocess.run(
-                f'"{npm_cmd}" install',
-                cwd=str(root_dir / "frontend"),
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
-            print(f"npm install result: {install_result.returncode}")
-            
-            if install_result.returncode == 0:
-                # Build the frontend
-                build_result = subprocess.run(
-                    f'"{npm_cmd}" run build',
-                    cwd=str(root_dir / "frontend"),
+        # Try to find frontend folder - check multiple locations
+        frontend_dir = None
+        possible_frontend_dirs = [
+            root_dir / "frontend",
+            exe_dir / "frontend",
+            Path.cwd() / "frontend",
+        ]
+        for dir_check in possible_frontend_dirs:
+            if dir_check.exists():
+                pkg_check = dir_check / "package.json"
+                if pkg_check.exists():
+                    frontend_dir = dir_check
+                    break
+        
+        if frontend_dir:
+            try:
+                print(f"Building frontend from {frontend_dir}")
+                # Install dependencies using shell=True for Windows compatibility
+                install_result = subprocess.run(
+                    f'"{npm_cmd}" install',
+                    cwd=str(frontend_dir),
                     shell=True,
                     capture_output=True,
                     text=True,
                     timeout=300
                 )
-                print(f"npm build result: {build_result.returncode}")
+                print(f"npm install result: {install_result.returncode}")
                 
-                if build_result.returncode == 0 and frontend_dist.exists():
-                    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
-                    print(f"Frontend built and mounted from {frontend_dist}")
-                    frontend_mounted = True
+                if install_result.returncode == 0:
+                    # Build the frontend
+                    build_result = subprocess.run(
+                        f'"{npm_cmd}" run build',
+                        cwd=str(frontend_dir),
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=300
+                    )
+                    print(f"npm build result: {build_result.returncode}")
+                    
+                    # Build outputs to frontend/dist - copy to exe folder
+                    built_dist = frontend_dir / "dist"
+                    if build_result.returncode == 0 and built_dist.exists():
+                        # Copy to exe directory for persistence
+                        exe_static = exe_dir / "static"
+                        exe_static.mkdir(exist_ok=True)
+                        import shutil as sh
+                        # Copy files
+                        for f in built_dist.iterdir():
+                            dest = exe_static / f.name
+                            if f.is_dir():
+                                sh.copytree(f, dest, dirs_exist_ok=True)
+                            else:
+                                sh.copy2(f, dest)
+                        app.mount("/", StaticFiles(directory=str(exe_static), html=True)
+                        print(f"Frontend built and mounted from {exe_static}")
+                        frontend_mounted = True
+                    else:
+                        print(f"Frontend build output: {build_result.stdout}")
+                        print(f"Frontend build error: {build_result.stderr}")
                 else:
-                    print(f"Frontend build output: {build_result.stdout}")
-                    print(f"Frontend build error: {build_result.stderr}")
-            else:
-                print(f"npm install output: {install_result.stdout}")
-                print(f"npm install error: {install_result.stderr}")
-        except Exception as e:
-            print(f"Auto-build error: {e}")
+                    print(f"npm install output: {install_result.stdout}")
+                    print(f"npm install error: {install_result.stderr}")
+            except Exception as e:
+                print(f"Auto-build error: {e}")
     
     if not frontend_mounted:
         print("ERROR: No frontend found!")
