@@ -77,7 +77,7 @@ jobs:
       - name: Build exe
         run: |
           pyinstaller --name SentinelEdge --onedir --console --icon app.ico --add-data static`;static --add-data .env`;. --hidden-import uvicorn --hidden-import motor --hidden-import pymongo --hidden-import yfinance --hidden-import prometheus_client --hidden-import talib --hidden-import numpy --hidden-import pandas --collect-all yfinance --collect-all motor --collect-all pymongo --collect-all talib --noconfirm server.py
-          Get-ChildItem -Path backend\dist\SentinelEdge -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_ }
+          Get-ChildItem -Path dist\SentinelEdge -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_ }
         working-directory: backend
         shell: pwsh
 
@@ -118,7 +118,7 @@ jobs:
           'UninstallDisplayIcon={app}\SentinelEdge.exe' | Add-Content setup.iss -Encoding ASCII
           '' | Add-Content setup.iss -Encoding ASCII
           '[Files]' | Add-Content setup.iss -Encoding ASCII
-          'Source: "backend\dist\SentinelEdge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs' | Add-Content setup.iss -Encoding ASCII
+          'Source: "dist\SentinelEdge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs' | Add-Content setup.iss -Encoding ASCII
           'Source: "mongodb\*"; DestDir: "{app}\mongodb"; Flags: ignoreversion' | Add-Content setup.iss -Encoding ASCII
           'Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall' | Add-Content setup.iss -Encoding ASCII
           '' | Add-Content setup.iss -Encoding ASCII
@@ -142,31 +142,32 @@ jobs:
       # Create launcher batch file
       - name: Create launcher
         run: |
-          '@echo off' | Out-File "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'title Sentinel Edge - Trading Brain' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'cd /d "%~dp0"' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo ==================================================' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo   Sentinel Edge - Trading Brain' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo ==================================================' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo [1/2] Starting MongoDB database...' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'if not exist "data" mkdir "data"' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'start "" /min "mongodb\mongod.exe" --dbpath "data" --port 27017' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo       MongoDB started on port 27017' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo [2/2] Starting Sentinel Edge server...' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'timeout /t 3 /nobreak > nul' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo       Browser will open automatically...' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo --------------------------------------------------' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo Press Ctrl+C to stop the server when done.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo --------------------------------------------------' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'SentinelEdge.exe' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'echo Server stopped.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
-          'pause' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          '@echo off' | Out-File "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'title Sentinel Edge - Trading Brain' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'cd /d "%~dp0"' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo ==================================================' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo   Sentinel Edge - Trading Brain' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo ==================================================' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo [1/2] Starting MongoDB database...' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'if not exist "data" mkdir "data"' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'start "" /min "mongodb\mongod.exe" --dbpath "data" --port 27017' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo       MongoDB started on port 27017' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo [2/2] Starting Sentinel Edge server...' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'timeout /t 3 /nobreak > nul' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo       Browser will open automatically...' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo --------------------------------------------------' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo Press Ctrl+C to stop the server when done.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo --------------------------------------------------' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'SentinelEdge.exe' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo Server stopped.' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'pause' | Add-Content "dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+        working-directory: backend
         shell: pwsh
 
       # Build installer
@@ -175,9 +176,9 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
           Get-ChildItem -Recurse -Filter "SentinelEdge*.exe" | ForEach-Object { 
             Write-Host "Found: $($_.FullName)"
-            Write-Host "Moving to root..."
             Move-Item $_.FullName . -Force
           }
+        working-directory: backend
         shell: pwsh
 
       # Upload artifact
@@ -186,5 +187,5 @@ jobs:
         with:
           name: SentinelEdge-Setup
           path: |
-            SentinelEdge-Setup*.exe
+            backend/SentinelEdge-Setup*.exe
           retention-days: 90
