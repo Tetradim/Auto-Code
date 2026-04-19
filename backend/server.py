@@ -1275,41 +1275,83 @@ else:
     print("WARNING: No frontend found - attempting to build automatically...")
     import subprocess
     import shutil
+    import sys
     
-    # Check if npm is available
+    # Try to find npm - check PATH and common locations
+    npm_cmd = None
+    
+    # First try shutil.which (works on Linux/Mac)
     npm_path = shutil.which("npm")
     if npm_path:
+        npm_cmd = "npm"
+    else:
+        # On Windows, try npm.cmd or check common install locations
+        if sys.platform == "win32":
+            # Try npm.cmd
+            npm_path = shutil.which("npm.cmd")
+            if npm_path:
+                npm_cmd = "npm.cmd"
+            else:
+                # Check Node.js common install paths
+                node_paths = [
+                    Path(os.environ.get("ProgramFiles", "C:\\Program Files") + "\\nodejs"),
+                    Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)") + "\\nodejs"),
+                    Path(os.environ.get("LOCALAPPDATA", "") + "\\Programs\\nodejs"),
+                ]
+                for node_path in node_paths:
+                    if node_path.exists():
+                        npm_candidate = node_path / "npm.cmd"
+                        if npm_candidate.exists():
+                            npm_cmd = str(npm_candidate)
+                            break
+    
+    if npm_cmd:
+        print(f"Found npm: {npm_cmd}")
         try:
-            # Install dependencies
-            result = subprocess.run(
-                ["npm", "install"],
+            # Install dependencies using shell=True for Windows compatibility
+            install_result = subprocess.run(
+                f'"{npm_cmd}" install',
                 cwd=str(root_dir / "frontend"),
+                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=300
             )
-            if result.returncode == 0:
+            print(f"npm install result: {install_result.returncode}")
+            
+            if install_result.returncode == 0:
                 # Build the frontend
-                result = subprocess.run(
-                    ["npm", "run", "build"],
+                build_result = subprocess.run(
+                    f'"{npm_cmd}" run build',
                     cwd=str(root_dir / "frontend"),
+                    shell=True,
                     capture_output=True,
                     text=True,
                     timeout=300
                 )
-                if result.returncode == 0 and frontend_dist.exists():
+                print(f"npm build result: {build_result.returncode}")
+                
+                if build_result.returncode == 0 and frontend_dist.exists():
                     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
                     print(f"Frontend built and mounted from {frontend_dist}")
                     frontend_mounted = True
                 else:
-                    print(f"Frontend build failed: {result.stderr}")
+                    print(f"Frontend build output: {build_result.stdout}")
+                    print(f"Frontend build error: {build_result.stderr}")
             else:
-                print(f"Frontend npm install failed: {result.stderr}")
+                print(f"npm install output: {install_result.stdout}")
+                print(f"npm install error: {install_result.stderr}")
         except Exception as e:
             print(f"Auto-build error: {e}")
     
     if not frontend_mounted:
-        print("WARNING: No frontend found (tried dist, public, and auto-build)")
+        print("ERROR: No frontend found!")
+        print("=" * 50)
+        print("To fix this, either:")
+        print("  1. Install Node.js from https://nodejs.org and restart Sentinel Edge")
+        print("  2. OR copy frontend/dist to backend/static manually")
+        print("  3. OR download the latest SentinelEdge-Setup.exe from GitHub releases")
+        print("=" * 50)
 
 
 if __name__ == "__main__":
