@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/FastAPI-0.115-blue?logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/TypeScript-5-blue?logo=typescript" alt="TypeScript">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/Windows-Executable-green?logo=windows" alt="Windows">
 </p>
 
 **Sentinel Edge** is a comprehensive, production-grade algorithmic trading system with real-time market data ingestion, multi-provider price feeds, backtesting engines, Monte Carlo risk simulation, strategy optimization, and automated decision-making capabilities.
@@ -14,9 +15,54 @@ This repository implements a complete trading pipeline from market data → sign
 
 ---
 
-## 🔗 Sentinel Pulse Integration
+## Installation
 
-Sentinel Edge works in tandem with **Sentinel Pulse**, the execution worker that handles brokerage data streams and order execution. Edge analyzes market data, detects patterns, generates signals, and instructs Pulse on what to buy or sell. This creates a **bidirectional feedback loop** where Pulse reports back on order fills and position updates, enabling Edge to make risk-aware decisions with real position data.
+### Option 1: Windows Installer (Recommended)
+Download the latest installer from GitHub Actions:
+1. Go to [GitHub Actions](https://github.com/Tetradim/sentinel-edge/actions)
+2. Run the "Build Installer" workflow
+3. Download `SentinelEdge-Setup.exe` from Artifacts
+4. Run the installer — creates desktop shortcut and auto-starts bundled MongoDB
+
+### Option 2: Docker
+```bash
+git clone https://github.com/Tetradim/sentinel-edge
+cd sentinel-edge
+docker compose up -d
+
+# Services
+open http://localhost:3001   # Grafana
+open http://localhost:9090   # Prometheus
+open http://localhost:3200   # Tempo UI
+```
+
+---
+
+## Architecture
+
+Sentinel Edge can run in two modes:
+
+### Standalone Desktop App (Windows)
+- Bundled SQLite database for state persistence
+- Bundled MongoDB for data storage
+- Bundled VC++ runtime
+- Desktop shortcut and start menu entries
+- Self-contained installer via Inno Setup
+
+### Docker Container
+- Uses MongoDB for state persistence
+- Requires external services (Prometheus, Grafana, Tempo)
+
+### Communication Methods
+
+| Method | Purpose |
+|--------|---------|
+| REST API | Primary communication with Pulse |
+| SQLite | State persistence (stand-alone) |
+| MongoDB | State persistence (Docker) |
+| Prometheus | Metrics at `/metrics` |
+
+Sentinel Edge works in tandem with **Sentinel Pulse**, the execution worker that handles brokerage data streams and order execution.
 
 ### Architecture Overview
 
@@ -676,6 +722,7 @@ Pre-built dashboards available in `grafana/dashboards/`:
 | `FINNHUB_API_KEY` | Finnhub API key | (optional) |
 | `GLOBAL_KILL_SWITCH` | Kill switch state | `false` |
 | `ANALYST_START_METRICS_SERVER` | Start Prometheus on port 8002 | `false` |
+| `DRY_RUN` | Dry run mode (no trades) | `true` |
 
 ---
 
