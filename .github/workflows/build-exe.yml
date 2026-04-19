@@ -1,0 +1,358 @@
+# Sentinel Edge Windows Executable Build Workflow
+# Builds the complete Windows installer with frontend bundled
+
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.1)'
+        required: false
+        default: ''
+  push:
+    branches:
+      - consolidated
+  release:
+    types: [published]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      # ─────────────────────────────────────────────────────────────
+      # Checkout and Setup
+      # ─────────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ─────────────────────────────────────────────────────────────
+      # Build Frontend
+      # ─────────────────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: ''
+          REACT_APP_PULSE_URL: ''
+        run: npm run build
+
+      - name: Verify frontend build
+        run: |
+          if (Test-Path frontend\dist) {
+            Write-Host "✓ Frontend built successfully"
+            Get-ChildItem frontend\dist | Format-Table Name, Length
+          } else {
+            throw "Frontend dist folder not found!"
+          }
+
+      # ─────────────────────────────────────────────────────────────
+      # Copy Frontend to backend/static (where server.py looks)
+      # ─────────────────────────────────────────────────────────────
+      - name: Prepare static directory
+        run: |
+          if (Test-Path backend\static) { Remove-Item -Recurse -Force backend\static }
+          New-Item -ItemType Directory -Force -Path backend\static | Out-Null
+          Copy-Item -Recurse frontend\dist\* backend\static\
+        shell: pwsh
+
+      - name: Verify static folder
+        run: |
+          Write-Host "Static folder contents:"
+          Get-ChildItem backend\static -Recurse | Select-Object FullName, Length | Format-Table
+
+      # ─────────────────────────────────────────────────────────────
+      # Install Python Dependencies
+      # ─────────────────────────────────────────────────────────────
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install PyInstaller
+        working-directory: backend
+        run: pip install pyinstaller pillow
+
+      # ─────────────────────────────────────────────────────────────
+      # Create App Icon
+      # ─────────────────────────────────────────────────────────────
+      - name: Create app icon
+        run: |
+          python -c "
+          from PIL import Image, ImageDraw
+          # Create a simple icon - emerald green circle with 'SE' text
+          sizes = [16, 32, 48, 64, 128, 256]
+          images = []
+          for size in sizes:
+              img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+              draw = ImageDraw.Draw(img)
+              # Emerald green gradient circle
+              draw.ellipse([0, 0, size-1, size-1], fill=(16, 185, 129, 255))
+              draw.ellipse([2, 2, size-3, size-3], fill=(34, 197, 94, 255))
+              images.append(img)
+          images[0].save('app.ico', format='ICO', sizes=[(s, s) for s in sizes])
+          "
+          if (-not (Test-Path 'backend\app.ico')) {
+            New-Item -ItemType File -Path 'backend\app.ico' -Force | Out-Null
+          }
+          Copy-Item app.ico backend\app.ico -Force
+        shell: pwsh
+
+      # ─────────────────────────────────────────────────────────────
+      # Create Default .env
+      # ─────────────────────────────────────────────────────────────
+      - name: Create default .env
+        working-directory: backend
+        run: |
+          $envContent = @"
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=sentinel_edge
+CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+PULSE_API_URL=http://pulse:8001
+DRY_RUN=true
+"@
+          $envContent | Out-File -FilePath .env -Encoding UTF8
+        shell: pwsh
+
+      # ─────────────────────────────────────────────────────────────
+      # Build Executable with PyInstaller
+      # ─────────────────────────────────────────────────────────────
+      - name: Build with PyInstaller
+        working-directory: backend
+        run: |
+          pyinstaller `
+            --name "SentinelEdge" `
+            --onedir `
+            --console `
+            --icon "app.ico" `
+            --add-data "static;static" `
+            --add-data ".env;." `
+            --hidden-import "uvicorn.logging" `
+            --hidden-import "uvicorn.loops" `
+            --hidden-import "uvicorn.loops.auto" `
+            --hidden-import "uvicorn.protocols" `
+            --hidden-import "uvicorn.protocols.http" `
+            --hidden-import "uvicorn.protocols.http.auto" `
+            --hidden-import "uvicorn.protocols.websockets" `
+            --hidden-import "uvicorn.protocols.websockets.auto" `
+            --hidden-import "uvicorn.lifespan" `
+            --hidden-import "uvicorn.lifespan.on" `
+            --hidden-import "motor" `
+            --hidden-import "motor.motor_asyncio" `
+            --hidden-import "pymongo" `
+            --hidden-import "dns.resolver" `
+            --hidden-import "yfinance" `
+            --hidden-import "prometheus_client" `
+            --hidden-import "talib" `
+            --hidden-import "numpy" `
+            --hidden-import "pandas" `
+            --collect-all "yfinance" `
+            --collect-all "certifi" `
+            --collect-all "motor" `
+            --collect-all "pymongo" `
+            --collect-all "talib" `
+            --noconfirm `
+            server.py
+        shell: pwsh
+
+      - name: Verify executable
+        run: |
+          $exePath = "backend\dist\SentinelEdge\SentinelEdge.exe"
+          if (Test-Path $exePath) {
+            $exeInfo = Get-Item $exePath
+            Write-Host "✓ Executable created: $($exeInfo.FullName)"
+            Write-Host "  Size: $([math]::Round($exeInfo.Length / 1MB, 2)) MB"
+          } else {
+            throw "Executable not found at $exePath"
+          }
+
+      # ─────────────────────────────────────────────────────────────
+      # Download MongoDB
+      # ─────────────────────────────────────────────────────────────
+      - name: Download MongoDB
+        run: |
+          $mongoUrl = "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.14.zip"
+          Write-Host "Downloading MongoDB..."
+          Invoke-WebRequest -Uri $mongoUrl -OutFile mongodb.zip
+          Write-Host "Extracting MongoDB..."
+          Expand-Archive -Path mongodb.zip -DestinationPath mongodb_temp -Force
+          # Find and copy mongod.exe
+          New-Item -ItemType Directory -Force -Path "mongodb" | Out-Null
+          $mongodPath = Get-ChildItem -Path "mongodb_temp" -Recurse -Filter "mongod.exe" | Select-Object -First 1
+          Write-Host "Found mongod at: $($mongodPath.FullName)"
+          Copy-Item $mongodPath.FullName "mongodb\" -Force
+          Write-Host "MongoDB ready"
+          Get-ChildItem mongodb
+        shell: pwsh
+
+      # ─────────────────────────────────────────────────────────────
+      # Download VC++ Redistributable
+      # ─────────────────────────────────────────────────────────────
+      - name: Download VC++ Redistributable
+        run: |
+          $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          Write-Host "Downloading VC++ Redistributable..."
+          Invoke-WebRequest -Uri $vcUrl -OutFile vc_redist.x64.exe
+          Write-Host "VC++ Redistributable downloaded"
+        shell: pwsh
+
+      # ─────────────────────────────────────────────────────────────
+      # Install Inno Setup
+      # ─────────────────────────────────────────────────────────────
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      # ─────────────────────────────────────────────────────────────
+      # Create Inno Setup Script
+      # ─────────────────────────────────────────────────────────────
+      - name: Create Inno Setup script
+        run: |
+          # Determine version from tag or use default
+          $version = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrEmpty($version)) {
+            if (${{ startsWith(github.ref, 'refs/tags/v') }}) {
+              $version = ${{ github.ref }} -replace 'refs/tags/v', ''
+            } else {
+              $version = "1.0.0"
+            }
+          }
+          
+          $script = @"
+[Setup]
+AppName=Sentinel Edge
+AppVersion=$version
+AppPublisher=Signal Forge Laboratory
+DefaultDirName={autopf}\SentinelEdge
+DefaultGroupName=Sentinel Edge
+OutputDir=.
+OutputBaseFilename=SentinelEdge-Setup-$version
+Compression=lzma2
+SolidCompression=yes
+PrivilegesRequired=admin
+WizardStyle=modern
+DisableProgramGroupPage=yes
+UninstallDisplayName=Sentinel Edge
+UninstallDisplayIcon={app}\SentinelEdge.exe
+
+[Files]
+Source: "backend\dist\SentinelEdge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+Source: "mongodb\*"; DestDir: "{app}\mongodb"; Flags: ignoreversion
+Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
+[Dirs]
+Name: "{app}\data"; Permissions: users-full
+
+[Icons]
+Name: "{group}\Sentinel Edge"; Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"
+Name: "{group}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\Sentinel Edge"; Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{commondesktop}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Create desktop shortcuts"; GroupDescription: "Additional icons:"
+
+[Run]
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated
+Filename: "{app}\Start Sentinel Edge.bat"; Description: "Launch Sentinel Edge"; Flags: nowait postinstall skipifsilent shellexec
+"@
+          $script | Out-File -FilePath setup.iss -Encoding ASCII
+
+      # ─────────────────────────────────────────────────────────────
+      # Create launcher batch file
+      # ─────────────────────────────────────────────────────────────
+      - name: Create launcher batch file
+        run: |
+          $batch = @"
+@echo off
+title Sentinel Edge
+cd /d "%~dp0"
+echo.
+echo ==================================================
+echo   Sentinel Edge - Trading Brain
+echo ==================================================
+echo.
+echo [1/2] Starting MongoDB database...
+if not exist "data" mkdir "data"
+start "" /min "mongodb\mongod.exe" --dbpath "data" --port 27017
+echo       MongoDB started on port 27017
+echo.
+echo [2/2] Starting Sentinel Edge server...
+timeout /t 3 /nobreak > nul
+echo       Browser will open automatically...
+echo.
+echo --------------------------------------------------
+echo Press Ctrl+C to stop the server when done.
+echo --------------------------------------------------
+echo.
+SentinelEdge.exe
+echo.
+echo Server stopped.
+pause
+"@
+          $batch | Out-File -FilePath "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+        shell: pwsh
+
+      # ─────────────────────────────────────────────────────────────
+      # Build Installer
+      # ─────────────────────────────────────────────────────────────
+      - name: Build installer with Inno Setup
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+        shell: pwsh
+
+      - name: Verify installer
+        run: |
+          $installer = Get-ChildItem -Filter "SentinelEdge-Setup*.exe" | Select-Object -First 1
+          if ($installer) {
+            Write-Host "✓ Installer created: $($installer.FullName)"
+            Write-Host "  Size: $([math]::Round($installer.Length / 1MB, 2)) MB"
+          } else {
+            throw "Installer not found!"
+          }
+
+      # ─────────────────────────────────────────────────────────────
+      # Upload Artifacts
+      # ─────────────────────────────────────────────────────────────
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SentinelEdge-Installer
+          path: SentinelEdge-Setup*.exe
+          retention-days: 90
+
+      - name: Upload portable version
+        uses: actions/upload-artifact@v4
+        with:
+          name: SentinelEdge-Portable
+          path: |
+            backend\dist\SentinelEdge
+            mongodb
+          retention-days: 30
+
+      # ─────────────────────────────────────────────────────────────
+      # Create GitHub Release (on tag)
+      # ─────────────────────────────────────────────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SentinelEdge-Setup*.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
