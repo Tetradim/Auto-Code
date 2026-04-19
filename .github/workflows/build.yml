@@ -44,6 +44,8 @@ jobs:
           if (Test-Path backend\static) { Remove-Item -Recurse -Force backend\static }
           New-Item -ItemType Directory -Force -Path backend\static | Out-Null
           Copy-Item -Recurse frontend\dist\* backend\static\
+          Write-Host "Static folder contents:"
+          Get-ChildItem -Path backend\static -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_ }
         shell: pwsh
 
       # Install Python dependencies
@@ -75,6 +77,7 @@ jobs:
       - name: Build exe
         run: |
           pyinstaller --name SentinelEdge --onedir --console --icon app.ico --add-data static`;static --add-data .env`;. --hidden-import uvicorn --hidden-import motor --hidden-import pymongo --hidden-import yfinance --hidden-import prometheus_client --hidden-import talib --hidden-import numpy --hidden-import pandas --collect-all yfinance --collect-all motor --collect-all pymongo --collect-all talib --noconfirm server.py
+          Get-ChildItem -Path backend\dist\SentinelEdge -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_ }
         working-directory: backend
         shell: pwsh
 
