@@ -1377,7 +1377,7 @@ else:
                                 sh.copytree(f, dest, dirs_exist_ok=True)
                             else:
                                 sh.copy2(f, dest)
-                        app.mount("/", StaticFiles(directory=str(exe_static), html=True)
+                        app.mount("/", StaticFiles(directory=str(exe_static), html=True), name="frontend")
                         print(f"Frontend built and mounted from {exe_static}")
                         frontend_mounted = True
                     else:
