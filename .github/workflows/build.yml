@@ -169,9 +169,12 @@ jobs:
       # Build installer
       - name: Build installer
         run: |
-          $output = & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
-          Write-Host $output
-          Get-ChildItem -Filter "*.exe" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+          Get-ChildItem -Recurse -Filter "SentinelEdge*.exe" | ForEach-Object { 
+            Write-Host "Found: $($_.FullName)"
+            Write-Host "Moving to root..."
+            Move-Item $_.FullName . -Force
+          }
         shell: pwsh
 
       # Upload artifact
