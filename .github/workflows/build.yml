@@ -74,7 +74,7 @@ jobs:
       # Build executable
       - name: Build exe
         run: |
-          pyinstaller --name SentinelEdge --onedir --console --icon app.ico --add-data static;static --add-data .env;. --hidden-import uvicorn --hidden-import motor --hidden-import pymongo --hidden-import yfinance --hidden-import prometheus_client --hidden-import talib --hidden-import numpy --hidden-import pandas --collect-all yfinance --collect-all motor --collect-all pymongo --collect-all talib --noconfirm server.py
+          pyinstaller --name SentinelEdge --onedir --console --icon app.ico --add-data static`;static --add-data .env`;. --hidden-import uvicorn --hidden-import motor --hidden-import pymongo --hidden-import yfinance --hidden-import prometheus_client --hidden-import talib --hidden-import numpy --hidden-import pandas --collect-all yfinance --collect-all motor --collect-all pymongo --collect-all talib --noconfirm server.py
         working-directory: backend
         shell: pwsh
 
