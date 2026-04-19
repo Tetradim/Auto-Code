@@ -109,6 +109,7 @@ jobs:
           'DefaultDirName={autopf}\SentinelEdge' | Add-Content setup.iss -Encoding ASCII
           'DefaultGroupName=Sentinel Edge' | Add-Content setup.iss -Encoding ASCII
           'OutputBaseFilename=SentinelEdge-Setup' | Add-Content setup.iss -Encoding ASCII
+          'OutputDir=.' | Add-Content setup.iss -Encoding ASCII
           'Compression=lzma2' | Add-Content setup.iss -Encoding ASCII
           'SolidCompression=yes' | Add-Content setup.iss -Encoding ASCII
           'PrivilegesRequired=admin' | Add-Content setup.iss -Encoding ASCII
@@ -137,6 +138,7 @@ jobs:
           '[Run]' | Add-Content setup.iss -Encoding ASCII
           'Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated' | Add-Content setup.iss -Encoding ASCII
           'Filename: "{app}\Start Sentinel Edge.bat"; Description: "Launch Sentinel Edge"; Flags: nowait postinstall skipifsilent shellexec' | Add-Content setup.iss -Encoding ASCII
+        working-directory: backend
         shell: pwsh
 
       # Create launcher batch file
