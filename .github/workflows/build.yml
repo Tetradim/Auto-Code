@@ -1,275 +1,181 @@
-name: Build Sentinel Edge
+# Sentinel Edge - Complete Windows Build Workflow
+# Builds installer with all dependencies
+
+name: Build Installer
 
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - consolidated
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
+      # Checkout code
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Setup Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      # Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Python dependencies
-        working-directory: backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller pillow
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm install
-
+      # Build frontend
       - name: Build frontend
+        run: |
+          npm install
+          npm run build
         working-directory: frontend
-        env:
-          REACT_APP_BACKEND_URL: ''
-          REACT_APP_PULSE_URL: ''
-        run: npm run build
 
-      - name: Copy frontend to backend/static
+      # Copy frontend to backend/static
+      - name: Copy frontend
         run: |
           if (Test-Path backend\static) { Remove-Item -Recurse -Force backend\static }
-          Copy-Item -Recurse frontend\dist backend\static
+          New-Item -ItemType Directory -Force -Path backend\static | Out-Null
+          Copy-Item -Recurse frontend\dist\* backend\static\
         shell: pwsh
 
-      - name: Create app icon
+      # Install Python dependencies
+      - name: Install Python deps
         run: |
-          python -c "
-          from PIL import Image, ImageDraw
-          # Create a simple icon - emerald green circle with 'SE' text
-          sizes = [16, 32, 48, 64, 128, 256]
-          images = []
-          for size in sizes:
-              img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-              draw = ImageDraw.Draw(img)
-              # Emerald green gradient circle
-              draw.ellipse([0, 0, size-1, size-1], fill=(16, 185, 129, 255))
-              draw.ellipse([2, 2, size-3, size-3], fill=(34, 197, 94, 255))
-              images.append(img)
-          images[0].save('app.ico', format='ICO', sizes=[(s, s) for s in sizes])
-          "
-          Copy-Item app.ico backend\app.ico
-        shell: pwsh
-
-      - name: Create default .env
+          pip install --upgrade pip
+          pip install -r requirements.txt
         working-directory: backend
-        run: |
-          @"
-          MONGO_URL=mongodb://localhost:27017
-          DB_NAME=sentinel_edge
-          CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
-          PULSE_API_URL=http://pulse:8001
-          DRY_RUN=true
-          "@ | Out-File -Encoding UTF8 .env
-        shell: pwsh
 
-      - name: Build executable with PyInstaller
+      # Install PyInstaller
+      - name: Install PyInstaller
+        run: pip install pyinstaller pillow
         working-directory: backend
+
+      # Create app icon
+      - name: Create icon
         run: |
-          pyinstaller `
-            --name "SentinelEdge" `
-            --onedir `
-            --console `
-            --icon "app.ico" `
-            --add-data "static;static" `
-            --add-data ".env;." `
-            --hidden-import "uvicorn.logging" `
-            --hidden-import "uvicorn.loops" `
-            --hidden-import "uvicorn.loops.auto" `
-            --hidden-import "uvicorn.protocols" `
-            --hidden-import "uvicorn.protocols.http" `
-            --hidden-import "uvicorn.protocols.http.auto" `
-            --hidden-import "uvicorn.protocols.websockets" `
-            --hidden-import "uvicorn.protocols.websockets.auto" `
-            --hidden-import "uvicorn.lifespan" `
-            --hidden-import "uvicorn.lifespan.on" `
-            --hidden-import "motor" `
-            --hidden-import "motor.motor_asyncio" `
-            --hidden-import "pymongo" `
-            --hidden-import "dns.resolver" `
-            --hidden-import "yfinance" `
-            --hidden-import "prometheus_client" `
-            --hidden-import "talib" `
-            --hidden-import "numpy" `
-            --hidden-import "pandas" `
-            --collect-all "yfinance" `
-            --collect-all "certifi" `
-            --collect-all "motor" `
-            --collect-all "pymongo" `
-            --collect-all "talib" `
-            --noconfirm `
-            server.py
+          python -c "from PIL import Image,ImageDraw;[(Image.new('RGBA',(s,s),(0,0,0,0)).save('app.ico',format='ICO') for s in [16,32,48,64,128,256]]"
+          Copy-Item app.ico backend\app.ico -Force
         shell: pwsh
 
+      # Create .env file
+      - name: Create env
+        run: |
+          "MONGO_URL=mongodb://localhost:27017`nDB_NAME=sentinel_edge`nCORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000`nPULSE_API_URL=http://pulse:8001`nDRY_RUN=true" | Out-File backend\.env -Encoding UTF8
+        shell: pwsh
+
+      # Build executable
+      - name: Build exe
+        run: |
+          pyinstaller --name SentinelEdge --onedir --console --icon app.ico --add-data static;static --add-data .env;. --hidden-import uvicorn --hidden-import motor --hidden-import pymongo --hidden-import yfinance --hidden-import prometheus_client --hidden-import talib --hidden-import numpy --hidden-import pandas --collect-all yfinance --collect-all motor --collect-all pymongo --collect-all talib --noconfirm server.py
+        working-directory: backend
+        shell: pwsh
+
+      # Download MongoDB
       - name: Download MongoDB
         run: |
-          # Download MongoDB Community Server 7.0 (zip version - easier to extract)
-          $mongoUrl = "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.14.zip"
-          Write-Host "Downloading MongoDB..."
-          Invoke-WebRequest -Uri $mongoUrl -OutFile mongodb.zip
-          Write-Host "Extracting MongoDB..."
+          Invoke-WebRequest -Uri https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.14.zip -OutFile mongodb.zip
           Expand-Archive -Path mongodb.zip -DestinationPath mongodb_temp -Force
-          # Find and copy mongod.exe
-          New-Item -ItemType Directory -Force -Path "mongodb"
-          $mongodPath = Get-ChildItem -Path "mongodb_temp" -Recurse -Filter "mongod.exe" | Select-Object -First 1
-          Write-Host "Found mongod at: $($mongodPath.FullName)"
-          Copy-Item $mongodPath.FullName "mongodb\"
-          Write-Host "MongoDB ready"
-          dir mongodb
+          New-Item -ItemType Directory -Force -Path mongodb | Out-Null
+          Copy-Item (Get-ChildItem -Path mongodb_temp -Recurse -Filter mongod.exe | Select -First 1).FullName mongodb\ -Force
         shell: pwsh
 
-      - name: Download VC++ Redistributable
-        run: |
-          # Download Visual C++ Redistributable 2015-2022 (required for Python/PyInstaller apps)
-          $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
-          Write-Host "Downloading VC++ Redistributable..."
-          Invoke-WebRequest -Uri $vcUrl -OutFile vc_redist.x64.exe
-          Write-Host "VC++ Redistributable downloaded"
+      # Download VC++ Redistributable
+      - name: Download VC++
+        run: Invoke-WebRequest -Uri https://aka.ms/vs/17/release/vc_redist.x64.exe -OutFile vc_redist.x64.exe
         shell: pwsh
 
+      # Install Inno Setup
       - name: Install Inno Setup
         run: choco install innosetup -y
 
-      - name: Create Inno Setup script
+      # Create Inno Setup script with desktop shortcut
+      - name: Create Inno script
         run: |
-          $script = @'
-          [Setup]
-          AppName=Sentinel Edge
-          AppVersion=1.0.0
-          AppPublisher=Signal Forge Laboratory
-          DefaultDirName={autopf}\SentinelEdge
-          DefaultGroupName=Sentinel Edge
-          OutputDir=.
-          OutputBaseFilename=SentinelEdge-Setup
-          Compression=lzma2
-          SolidCompression=yes
-          PrivilegesRequired=admin
-          WizardStyle=modern
-          DisableProgramGroupPage=yes
-          ; Required so {commondesktop} uninstall shortcut resolves correctly
-          UninstallDisplayName=Sentinel Edge
-          UninstallDisplayIcon={app}\SentinelEdge.exe
-
-          [Files]
-          Source: "backend\dist\SentinelEdge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
-          Source: "mongodb\*"; DestDir: "{app}\mongodb"; Flags: ignoreversion
-          Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-
-          [Dirs]
-          Name: "{app}\data"; Permissions: users-full
-
-          [Icons]
-          ; ── Start Menu shortcuts ──────────────────────────────────────────────
-          Name: "{group}\Sentinel Edge";           Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"
-          Name: "{group}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}"
-
-          ; ── Desktop shortcuts (both created unconditionally) ──────────────────
-          Name: "{commondesktop}\Sentinel Edge";           Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"; Tasks: desktopicon
-          Name: "{commondesktop}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}";                WorkingDir: "{app}"; Tasks: desktopicon
-
-          [Tasks]
-          Name: "desktopicon"; Description: "Create desktop shortcuts (Launch + Uninstall)"; GroupDescription: "Additional icons:"
-
-          [Run]
-          Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated
-          Filename: "{app}\Start Sentinel Edge.bat"; Description: "Launch Sentinel Edge"; Flags: nowait postinstall skipifsilent shellexec
-          '@
-          $script | Out-File -FilePath setup.iss -Encoding ASCII
-
-          # Create the batch file
-          $batch = @'
-          @echo off
-          title Sentinel Edge
-          cd /d "%~dp0"
-          echo.
-          echo  ==================================================
-          echo    Sentinel Edge - Trading Brain
-          echo  ==================================================
-          echo.
-          echo  [1/2] Starting MongoDB database...
-          if not exist "data" mkdir "data"
-          start "" /min "mongodb\mongod.exe" --dbpath "data" --port 27017
-          echo        MongoDB started on port 27017
-          echo.
-          echo  [2/2] Starting Sentinel Edge server...
-          timeout /t 3 /nobreak > nul
-          echo        Browser will open automatically...
-          echo.
-          echo  --------------------------------------------------
-          echo  Press Ctrl+C to stop the server when done.
-          echo  --------------------------------------------------
-          echo.
-          SentinelEdge.exe
-          echo.
-          echo  Server stopped.
-          pause
-          '@
-          $batch | Out-File -FilePath "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          '[Setup]' | Out-File setup.iss -Encoding ASCII
+          'AppName=Sentinel Edge' | Add-Content setup.iss -Encoding ASCII
+          'AppVersion=1.0.0' | Add-Content setup.iss -Encoding ASCII
+          'AppPublisher=Signal Forge Laboratory' | Add-Content setup.iss -Encoding ASCII
+          'DefaultDirName={autopf}\SentinelEdge' | Add-Content setup.iss -Encoding ASCII
+          'DefaultGroupName=Sentinel Edge' | Add-Content setup.iss -Encoding ASCII
+          'OutputBaseFilename=SentinelEdge-Setup' | Add-Content setup.iss -Encoding ASCII
+          'Compression=lzma2' | Add-Content setup.iss -Encoding ASCII
+          'SolidCompression=yes' | Add-Content setup.iss -Encoding ASCII
+          'PrivilegesRequired=admin' | Add-Content setup.iss -Encoding ASCII
+          'WizardStyle=modern' | Add-Content setup.iss -Encoding ASCII
+          'DisableProgramGroupPage=yes' | Add-Content setup.iss -Encoding ASCII
+          'UninstallDisplayName=Sentinel Edge' | Add-Content setup.iss -Encoding ASCII
+          'UninstallDisplayIcon={app}\SentinelEdge.exe' | Add-Content setup.iss -Encoding ASCII
+          '' | Add-Content setup.iss -Encoding ASCII
+          '[Files]' | Add-Content setup.iss -Encoding ASCII
+          'Source: "backend\dist\SentinelEdge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs' | Add-Content setup.iss -Encoding ASCII
+          'Source: "mongodb\*"; DestDir: "{app}\mongodb"; Flags: ignoreversion' | Add-Content setup.iss -Encoding ASCII
+          'Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall' | Add-Content setup.iss -Encoding ASCII
+          '' | Add-Content setup.iss -Encoding ASCII
+          '[Dirs]' | Add-Content setup.iss -Encoding ASCII
+          'Name: "{app}\data"; Permissions: users-full' | Add-Content setup.iss -Encoding ASCII
+          '' | Add-Content setup.iss -Encoding ASCII
+          '[Icons]' | Add-Content setup.iss -Encoding ASCII
+          'Name: "{group}\Sentinel Edge"; Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"' | Add-Content setup.iss -Encoding ASCII
+          'Name: "{group}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}"' | Add-Content setup.iss -Encoding ASCII
+          'Name: "{commondesktop}\Sentinel Edge"; Filename: "{app}\Start Sentinel Edge.bat"; WorkingDir: "{app}"; Tasks: desktopicon' | Add-Content setup.iss -Encoding ASCII
+          'Name: "{commondesktop}\Uninstall Sentinel Edge"; Filename: "{uninstallexe}"; WorkingDir: "{app}"; Tasks: desktopicon' | Add-Content setup.iss -Encoding ASCII
+          '' | Add-Content setup.iss -Encoding ASCII
+          '[Tasks]' | Add-Content setup.iss -Encoding ASCII
+          'Name: "desktopicon"; Description: "Create desktop shortcuts"; GroupDescription: "Additional icons:"' | Add-Content setup.iss -Encoding ASCII
+          '' | Add-Content setup.iss -Encoding ASCII
+          '[Run]' | Add-Content setup.iss -Encoding ASCII
+          'Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated' | Add-Content setup.iss -Encoding ASCII
+          'Filename: "{app}\Start Sentinel Edge.bat"; Description: "Launch Sentinel Edge"; Flags: nowait postinstall skipifsilent shellexec' | Add-Content setup.iss -Encoding ASCII
         shell: pwsh
 
-      - name: Build installer with Inno Setup
+      # Create launcher batch file
+      - name: Create launcher
+        run: |
+          '@echo off' | Out-File "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'title Sentinel Edge - Trading Brain' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'cd /d "%~dp0"' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo ==================================================' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo   Sentinel Edge - Trading Brain' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo ==================================================' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo [1/2] Starting MongoDB database...' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'if not exist "data" mkdir "data"' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'start "" /min "mongodb\mongod.exe" --dbpath "data" --port 27017' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo       MongoDB started on port 27017' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo [2/2] Starting Sentinel Edge server...' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'timeout /t 3 /nobreak > nul' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo       Browser will open automatically...' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo --------------------------------------------------' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo Press Ctrl+C to stop the server when done.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo --------------------------------------------------' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'SentinelEdge.exe' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'echo Server stopped.' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+          'pause' | Add-Content "backend\dist\SentinelEdge\Start Sentinel Edge.bat" -Encoding ASCII
+        shell: pwsh
+
+      # Build installer
+      - name: Build installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
         shell: pwsh
 
-      - name: Upload installer
+      # Upload artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SentinelEdge-Installer
+          name: SentinelEdge-Setup
           path: SentinelEdge-Setup.exe
           retention-days: 90
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: SentinelEdge-Setup.exe
-          generate_release_notes: true
-          body: |
-            ## Sentinel Edge - Windows Installer
-
-            ### Installation
-            1. Download `SentinelEdge-Setup.exe`
-            2. Run the installer (may need to click "More info" → "Run anyway")
-            3. Follow the installation wizard
-            4. Launch from Desktop shortcut
-
-            ### What's Included
-            - Sentinel Edge trading brain
-            - MongoDB database (bundled, no separate install needed)
-            - Auto-starts MongoDB when you launch the app
-            - Frontend UI
-
-            ### Features
-            - Paper Trading (no API keys needed)
-            - Portfolio Analytics
-            - Pattern Recognition
-            - Strategy Backtesting
-            - Live signal generation
-
-            ### Requirements
-            - Windows 10/11 (64-bit)
-            - Internet connection for live price data
-
-            ### First Run
-            Click the desktop shortcut. A terminal window opens showing:
-            1. MongoDB starting
-            2. Sentinel Edge starting
-            3. Browser opens to http://localhost:8000
