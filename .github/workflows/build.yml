@@ -61,7 +61,20 @@ jobs:
       # Create app icon
       - name: Create icon
         run: |
-          python -c "from PIL import Image,ImageDraw;imgs=[Image.new('RGBA',(s,s),(0,0,0,0))for s in[16,32,48,64,128,256]];imgs[0].save('app.ico',format='ICO',sizes=[(s,s)for s in[16,32,48,64,128,256]]"
+          $pythonCode = @'
+from PIL import Image, ImageDraw
+sizes = [16, 32, 48, 64, 128, 256]
+images = []
+for size in sizes:
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=(16, 185, 129, 255))
+    draw.ellipse([2, 2, size-3, size-3], fill=(34, 197, 94, 255))
+    images.append(img)
+images[0].save('app.ico', format='ICO', sizes=[(s, s) for s in sizes])
+'@
+          $pythonCode | Out-File -FilePath create_icon.py -Encoding UTF8
+          python create_icon.py
           Copy-Item app.ico backend\app.ico -Force
         shell: pwsh
 
