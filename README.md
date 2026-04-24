@@ -506,6 +506,17 @@ sentinel-edge/
 - **Order fill tracking** — Closed-loop trade result recording
 - **Circuit breaker** — Graceful degradation when Pulse unavailable
 
+### Phase 10: Options Greeks (NEW)
+- **Delta** — Direction & Probability (sensitivity to price movement)
+- **Theta** — Time Decay (daily value erosion)
+- **Vega** — Volatility Sensitivity (IV impact)
+- **Gamma** — Delta Acceleration (rate of delta change)
+- **Rho** — Interest Rate Sensitivity (bond yield impact)
+- **GEX/VEX** — Gamma/Vega Exposure aggregates
+- **IV Percentile Tracking** — Historical IV comparison (1st-99th percentile)
+- **Volatility Spike Protection** — Alerts when IV >50% above recent average
+- **Unified Greeks Engine** — Configurable computation (exclude unused Greeks for performance)
+
 ---
 
 ## 🧰 Tech Stack
@@ -606,6 +617,18 @@ docker-compose up -d
 | GET | `/api/stats` | Runtime statistics |
 | GET | `/api/providers/health` | Provider health status |
 | GET | `/api/queue` | Retry queue status |
+
+### Options Greeks (NEW)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/greeks/{symbol}` | Get unified Greeks analysis |
+| GET | `/api/greeks/{symbol}/delta` | Delta analysis only |
+| GET | `/api/greeks/{symbol}/theta` | Theta analysis only |
+| GET | `/api/greeks/{symbol}/vega` | Vega analysis only |
+| GET | `/api/greeks/{symbol}/gamma` | Gamma analysis only |
+| GET | `/api/greeks/{symbol}/iv-history` | IV percentile history |
+| GET | `/api/greeks/config` | Get Greeks config |
+| POST | `/api/greeks/config` | Update Greeks config |
 
 ---
 
@@ -817,9 +840,22 @@ Configure behavior in the **Settings** tab:
 
 | Dashboard | Features |
 |-----------|----------|
+| `GreeksDashboard.tsx` | Delta, Theta, Vega, Gamma charts, IV percentile, volatility regimes |
 | `PaperTrading.tsx` | Order form, positions, account |
 | `PortfolioAnalytics.tsx` | Charts, metrics, position table |
-| `SettingsDashboard.tsx` | Config UI, localStorage persistence |
+| `SettingsDashboard.tsx` | Config UI, Greek toggles, Advanced Options |
+| `TutorialsDashboard.tsx` | Learning center with Greeks & volatility tutorials |
+
+### Backend (`backend/options/`)
+
+| Module | Features |
+|--------|----------|
+| `delta.py` | Direction & Probability analysis |
+| `theta.py` | Time Decay analysis |
+| `gamma.py` | Position-level gamma tracking |
+| `gex.py` | Gamma Exposure aggregate |
+| `vex.py` | Vega Exposure aggregate |
+| `unified_greeks.py` | Unified engine, IV percentiles, spike protection |
 
 ### API Endpoints
 
