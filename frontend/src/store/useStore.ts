@@ -104,12 +104,13 @@ export const useStore = create<EdgeStore>((set) => ({
   mockMode: false,
   setMockMode: (mockMode) => set({ mockMode }),
 
-  // Greek Analysis Toggles (optional analysis)
+  // Greek Analysis Toggles (optional analysis - can exclude unused Greeks for performance)
   greeksEnabled: {
     delta: false,
     theta: false,
     vega: false,
     gamma: false,
+    rho: false,    // Interest rate sensitivity
     gex: false,
     vex: false,
   },
@@ -117,6 +118,14 @@ export const useStore = create<EdgeStore>((set) => ({
     set((state) => ({
       greeksEnabled: { ...state.greeksEnabled, ...enabled },
     })),
+
+  // IV Percentile Tracking
+  ivTrackingEnabled: false,
+  setIVTracking: (enabled: boolean) => set({ ivTrackingEnabled: enabled }),
+
+  // Volatility Spike Protection
+  spikeProtectionEnabled: true,
+  setSpikeProtection: (enabled: boolean) => set({ spikeProtectionEnabled: enabled }),
 
   // Correlation alerts (legacy)
   correlationAlerts: [],

@@ -7,12 +7,24 @@ Modules:
 - gamma: Individual position gamma tracking
 - delta: Delta Direction & Probability analysis
 - theta: Theta Time Decay analysis
+- unified_greeks: Unified Greeks Engine (all Greeks, configurable)
 """
 from .gex import GEXEngine, GEXMetrics, OptionContract
 from .vex import VEXEngine, VEXMetrics
-from .gamma import GammaEngine, GreeksCalculator
+from .gamma import GammaEngine, GreeksCalculator, GammaPosition, PortfolioGamma
 from .delta import DeltaEngine, DeltaMetrics
 from .theta import ThetaEngine, ThetaMetrics
+from .unified_greeks import (
+    GreeksEngine,
+    GreeksConfig, 
+    UnifiedGreeks,
+    GreekType,
+    VolatilityRegime,
+    IVPercentileData,
+    create_greeks_engine,
+    GREEK_LABELS,
+    GREEK_DESCRIPTIONS,
+)
 
 __all__ = [
     "GEXEngine",
@@ -22,8 +34,20 @@ __all__ = [
     "VEXMetrics",
     "GammaEngine",
     "GreeksCalculator",
+    "GammaPosition",
+    "PortfolioGamma",
     "DeltaEngine",
     "DeltaMetrics",
     "ThetaEngine",
-    "ThetaMetrics"
+    "ThetaMetrics",
+    # Unified engine exports
+    "GreeksEngine",
+    "GreeksConfig",
+    "UnifiedGreeks",
+    "GreekType",
+    "VolatilityRegime",
+    "IVPercentileData",
+    "create_greeks_engine",
+    "GREEK_LABELS",
+    "GREEK_DESCRIPTIONS",
 ]

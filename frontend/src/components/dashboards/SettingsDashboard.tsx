@@ -3,7 +3,7 @@
  * Configuration management for Edge
  */
 import React, { useEffect, useState } from 'react';
-import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle, TrendingUp } from 'lucide-react';
+import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle, TrendingUp, ShieldAlert } from 'lucide-react';
 
 interface ConfigSection {
   name: string;
@@ -45,8 +45,17 @@ const CONFIG_SECTIONS: ConfigSection[] = [
       { key: 'theta', label: 'Theta Analysis', type: 'boolean', value: false, description: 'Time Decay - measures daily value erosion' },
       { key: 'vega', label: 'Vega Analysis', type: 'boolean', value: false, description: 'Volatility Sensitivity - measures IV impact' },
       { key: 'gamma', label: 'Gamma Analysis', type: 'boolean', value: false, description: 'Delta Acceleration - measures rate of delta change' },
-      { key: 'gex', label: 'GEX Analysis', type: 'boolean', value: false, description: 'Gamma Exposure - aggregate market maker gamma' },
-      { key: 'vex', label: 'VEX Analysis', type: 'boolean', value: false, description: 'Vega Exposure - aggregate volatility exposure' },
+      { key: 'rho', label: 'Rho Analysis', type: 'boolean', value: false, description: 'Interest Rate Sensitivity - bond yield impact' },
+      { key: 'gex', label: 'GEX (Gamma Exposure)', type: 'boolean', value: false, description: 'Aggregate market maker gamma' },
+      { key: 'vex', label: 'VEX (Vega Exposure)', type: 'boolean', value: false, description: 'Aggregate volatility exposure' },
+    ]
+  },
+  {
+    name: 'Advanced Options',
+    key: 'advanced',
+    fields: [
+      { key: 'iv_tracking', label: 'IV Percentile Tracking', type: 'boolean', value: false, description: 'Track IV relative to historical percentiles' },
+      { key: 'spike_protection', label: 'Volatility Spike Protection', type: 'boolean', value: true, description: 'Detect and warn on IV spikes >50% above normal' },
     ]
   },
   {
@@ -206,6 +215,7 @@ export function SettingsDashboard() {
               {section.key === 'data' && <Database className="w-5 h-5 text-emerald-400" />}
               {section.key === 'risk' && <Shield className="w-5 h-5 text-red-400" />}
               {section.key === 'greeks' && <TrendingUp className="w-5 h-5 text-purple-400" />}
+              {section.key === 'advanced' && <ShieldAlert className="w-5 h-5 text-amber-400" />}
               {section.key === 'paper' && <Zap className="w-5 h-5 text-amber-400" />}
               {section.key === 'rate_limit' && <Globe className="w-5 h-5 text-blue-400" />}
               {section.name}

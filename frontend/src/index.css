@@ -7,3 +7,48 @@
     @apply bg-gray-950 text-gray-100;
   }
 }
+
+/* Responsive utilities for charts and dashboards */
+@layer utilities {
+  .chart-container {
+    @apply w-full overflow-x-auto;
+  }
+  
+  .chart-wrapper {
+    @apply min-w-[300px] lg:min-w-0;
+  }
+  
+  /* Mobile-first responsive grid */
+  .grid-responsives {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4;
+  }
+  
+  /* Touch-friendly interactions for mobile */
+  .touch-manipulation {
+    @apply touch-manipulation;
+  }
+  
+  /* Responsive text sizing */
+  .text-responsive {
+    @apply text-sm sm:text-base lg:text-lg;
+  }
+  
+  /* Card responsive padding */
+  .card-padding {
+    @apply p-3 sm:p-4 lg:p-6;
+  }
+}
+
+/* Animations for loading states */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 5px rgba(16, 185, 129, 0.2);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
