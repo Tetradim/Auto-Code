@@ -127,6 +127,22 @@ export const useStore = create<EdgeStore>((set) => ({
   spikeProtectionEnabled: true,
   setSpikeProtection: (enabled: boolean) => set({ spikeProtectionEnabled: enabled }),
 
+  // Short Interest Analysis
+  shortInterestEnabled: false,
+  setShortInterestEnabled: (enabled: boolean) => set({ shortInterestEnabled: enabled }),
+  shortInterestData: Record<string, any>,
+  setShortInterestData: (data: Record<string, any>) => set({ shortInterestData: data }),
+
+  // Chart Type Selection (Area, Bar, Line, Candlestick)
+  defaultChartType: 'line' as 'area' | 'bar' | 'line' | 'candlestick' | 'heatmap',
+  setDefaultChartType: (type: 'area' | 'bar' | 'line' | 'candlestick' | 'heatmap') => 
+    set({ defaultChartType: type }),
+
+  // Dashboard Layout (Grid, List, Heatmap)
+  dashboardLayout: 'grid' as 'grid' | 'list' | 'heatmap',
+  setDashboardLayout: (layout: 'grid' | 'list' | 'heatmap') => 
+    set({ dashboardLayout: layout }),
+
   // Correlation alerts (legacy)
   correlationAlerts: [],
   setCorrelationAlerts: (correlationAlerts) => set({ correlationAlerts }),

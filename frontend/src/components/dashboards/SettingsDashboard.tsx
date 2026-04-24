@@ -3,7 +3,7 @@
  * Configuration management for Edge
  */
 import React, { useEffect, useState } from 'react';
-import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle, TrendingUp, ShieldAlert } from 'lucide-react';
+import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle, TrendingUp, ShieldAlert, BarChart3 } from 'lucide-react';
 
 interface ConfigSection {
   name: string;
@@ -56,6 +56,15 @@ const CONFIG_SECTIONS: ConfigSection[] = [
     fields: [
       { key: 'iv_tracking', label: 'IV Percentile Tracking', type: 'boolean', value: false, description: 'Track IV relative to historical percentiles' },
       { key: 'spike_protection', label: 'Volatility Spike Protection', type: 'boolean', value: true, description: 'Detect and warn on IV spikes >50% above normal' },
+      { key: 'short_interest', label: 'Short Interest Analysis', type: 'boolean', value: false, description: 'Days to cover & squeeze potential analysis' },
+    ]
+  },
+  {
+    name: 'Chart Options',
+    key: 'charts',
+    fields: [
+      { key: 'chart_type', label: 'Default Chart Type', type: 'select', value: 'line', options: ['area', 'bar', 'line', 'candlestick', 'heatmap'], description: 'Default visualization type' },
+      { key: 'dashboard_layout', label: 'Dashboard Layout', type: 'select', value: 'grid', options: ['grid', 'list', 'heatmap'], description: 'Card layout arrangement' },
     ]
   },
   {
@@ -216,6 +225,7 @@ export function SettingsDashboard() {
               {section.key === 'risk' && <Shield className="w-5 h-5 text-red-400" />}
               {section.key === 'greeks' && <TrendingUp className="w-5 h-5 text-purple-400" />}
               {section.key === 'advanced' && <ShieldAlert className="w-5 h-5 text-amber-400" />}
+              {section.key === 'charts' && <BarChart3 className="w-5 h-5 text-blue-400" />}
               {section.key === 'paper' && <Zap className="w-5 h-5 text-amber-400" />}
               {section.key === 'rate_limit' && <Globe className="w-5 h-5 text-blue-400" />}
               {section.name}

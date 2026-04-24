@@ -25,6 +25,13 @@ from .unified_greeks import (
     GREEK_LABELS,
     GREEK_DESCRIPTIONS,
 )
+from .short_interest import (
+    ShortInterestEngine,
+    ShortInterestMetrics,
+    ShortInterestData,
+    SqueezeRisk,
+    export_to_prometheus as export_short_interest,
+)
 
 __all__ = [
     "GEXEngine",
@@ -50,4 +57,10 @@ __all__ = [
     "create_greeks_engine",
     "GREEK_LABELS",
     "GREEK_DESCRIPTIONS",
+    # Short Interest
+    "ShortInterestEngine",
+    "ShortInterestMetrics",
+    "ShortInterestData",
+    "SqueezeRisk",
+    "export_short_interest",
 ]
