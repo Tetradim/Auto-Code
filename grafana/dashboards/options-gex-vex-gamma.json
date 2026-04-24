@@ -1,0 +1,379 @@
+{
+  "title": "Options GEX/VEX/Gamma Analysis",
+  "uid": "sentinel-options-gex",
+  "tags": ["sentinel", "options", "gex", "vex", "gamma", "volatility"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "templating": {
+    "list": [
+      { "name": "symbol", "type": "query", "datasource": "Prometheus", "query": "label_values(gex_net, symbol)", "multi": true, "includeAll": true },
+      { "name": "timeframe", "type": "custom", "query": "5m,15m,30m,1h,4h,1d", "current": { "text": "1h", "value": "1h" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "GEX (Gamma Exposure) Over Time",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "gex_net{symbol=~\"$symbol\"}", "legendFormat": "Net GEX" },
+        { "refId": "B", "expr": "gex_total_call{symbol=~\"$symbol\"}", "legendFormat": "Call Gamma" },
+        { "refId": "C", "expr": "gex_total_put{symbol=~\"$symbol\"}", "legendFormat": "Put Gamma" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currency",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0 },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Net GEX",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "gex_net{symbol=~\"$symbol\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currency",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Market Bias",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "gex_bias_strength{symbol=~\"$symbol\"} * 100", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "yellow", "value": null },
+              { "color": "green", "value": 30 },
+              { "color": "red", "value": 70 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "gauge",
+      "title": "Vol Signal",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [{ "refId": "A", "expr": "abs(gex_net{symbol=~\"$symbol\"}) / (gex_total_call{symbol=~\"$symbol\"} + gex_total_put{symbol=~\"$symbol\"} + 1) * 100", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 60 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "VEX (Vega Exposure) Over Time",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "refId": "A", "expr": "vex_net{symbol=~\"$symbol\"}", "legendFormat": "Net VEX" },
+        { "refId": "B", "expr": "vex_total_call{symbol=~\"$symbol\"}", "legendFormat": "Call Vega" },
+        { "refId": "C", "expr": "vex_total_put{symbol=~\"$symbol\"}", "legendFormat": "Put Vega" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currency",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "ATM IV",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "vex_atm_iv{symbol=~\"$symbol\"} * 100", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 15 },
+              { "color": "red", "value": 30 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "IV Skew",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "vex_iv_skul{symbol=~\"$symbol\"} * 100", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "Vol Regime",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "vex_atm_iv{symbol=~\"$symbol\"} * 100", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 50,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 15 },
+              { "color": "orange", "value": 25 },
+              { "color": "red", "value": 40 }
+            ]
+          }
+        }
+      },
+      "options": { "orientation": "horizontal", "displayMode": "gradient" }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Portfolio Gamma Over Time",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "refId": "A", "expr": "gamma_net{symbol=~\"$symbol\"}", "legendFormat": "Net Gamma" },
+        { "refId": "B", "expr": "gamma_call{symbol=~\"$symbol\"}", "legendFormat": "Call Gamma" },
+        { "refId": "C", "expr": "gamma_put{symbol=~\"$symbol\"}", "legendFormat": "Put Gamma" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currency",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Net Delta",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 16 },
+      "targets": [{ "refId": "A", "expr": "gamma_delta{symbol=~\"$symbol\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currency",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "P&L @ 1% Move",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 16 },
+      "targets": [{ "refId": "A", "expr": "gamma_pnl_1pct{symbol=~\"$symbol\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currency",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "P&L @ 2% Move",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 16 },
+      "targets": [{ "refId": "A", "expr": "gamma_pnl_2pct{symbol=~\"$symbol\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currency",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "GEX Support/Resistance Levels",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "refId": "A", "expr": "gex_max_strike{symbol=~\"$symbol\"}", "legendFormat": "Max Gamma" },
+        { "refId": "B", "expr": "gex_call_max_strike{symbol=~\"$symbol\"}", "legendFormat": "Call Wall" },
+        { "refId": "C", "expr": "gex_put_max_strike{symbol=~\"$symbol\"}", "legendFormat": "Put Wall" },
+        { "refId": "D", "expr": "gex_spot_price{symbol=~\"$symbol\"}", "legendFormat": "Spot" }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Vol Sentiment",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "refId": "A", "expr": "vex_sentiment_strength{symbol=~\"$symbol\"} * 100", "legendFormat": "Sentiment %" },
+        { "refId": "B", "expr": "vex_call_iv{symbol=~\"$symbol\"} * 100", "legendFormat": "Call IV" },
+        { "refId": "C", "expr": "vex_put_iv{symbol=~\"$symbol\"} * 100", "legendFormat": "Put IV" }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "GEX vs Spot Price",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        { "refId": "A", "expr": "gex_net{symbol=~\"$symbol\"}", "legendFormat": "Net GEX", "axisSide": "left" },
+        { "refId": "B", "expr": "gex_spot_price{symbol=~\"$symbol\"}", "legendFormat": "Spot", "axisSide": "right" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "spanNulls": true
+          }
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "IV vs VEX Overlay",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        { "refId": "A", "expr": "vex_atm_iv{symbol=~\"$symbol\"} * 100", "legendFormat": "IV %", "axisSide": "left" },
+        { "refId": "B", "expr": "vex_net{symbol=~\"$symbol\"} / 1000", "legendFormat": "VEX", "axisSide": "right" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "spanNulls": true
+          }
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "heatmap",
+      "title": "Gamma Heatmap by Strike",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (strike) (gamma{symbol=~\"$symbol\"})", "legendFormat": "{{strike}}" }
+      ],
+      "options": {
+        "showValue": "always",
+        "calc": "lastNotNull"
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "GEX Signal",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 40 },
+      "targets": [{ "refId": "A", "expr": "gex_bias_strength{symbol=~\"$symbol\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "grey", "value": null },
+              { "color": "green", "value": 0.3 },
+              { "color": "orange", "value": 0.7 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "VEX Signal",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 40 },
+      "targets": [{ "refId": "A", "expr": "vex_sentiment_strength{symbol=~\"$symbol\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "grey", "value": null },
+              { "color": "green", "value": 0.3 },
+              { "color": "orange", "value": 0.7 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background" }
+    }
+  ]
+}
