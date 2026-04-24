@@ -46,6 +46,17 @@ interface EdgeStore {
   mockMode: boolean;
   setMockMode: (enabled: boolean) => void;
 
+  // Greek Analysis Toggles (optional analysis)
+  greeksEnabled: {
+    delta: boolean;    // Delta Direction & Probability
+    theta: boolean;  // Theta Time Decay
+    vega: boolean; // Vega Volatility Sensitivity
+    gamma: boolean; // Gamma Delta Acceleration
+    gex: boolean; // Gamma Exposure
+    vex: boolean; // Vega Exposure
+  };
+  setGreeksEnabled: (enabled: Partial<EdgeStore['greeksEnabled']>) => void;
+
   // Correlation alerts (legacy — kept for DecisionFeed backward compat)
   correlationAlerts: CorrelationCluster[];
   setCorrelationAlerts: (alerts: CorrelationCluster[]) => void;
@@ -92,6 +103,20 @@ export const useStore = create<EdgeStore>((set) => ({
   // Mock mode
   mockMode: false,
   setMockMode: (mockMode) => set({ mockMode }),
+
+  // Greek Analysis Toggles (optional analysis)
+  greeksEnabled: {
+    delta: false,
+    theta: false,
+    vega: false,
+    gamma: false,
+    gex: false,
+    vex: false,
+  },
+  setGreeksEnabled: (enabled) =>
+    set((state) => ({
+      greeksEnabled: { ...state.greeksEnabled, ...enabled },
+    })),
 
   // Correlation alerts (legacy)
   correlationAlerts: [],

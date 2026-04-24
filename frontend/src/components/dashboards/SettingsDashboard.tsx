@@ -3,7 +3,7 @@
  * Configuration management for Edge
  */
 import React, { useEffect, useState } from 'react';
-import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle } from 'lucide-react';
+import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle, TrendingUp } from 'lucide-react';
 
 interface ConfigSection {
   name: string;
@@ -35,6 +35,18 @@ const CONFIG_SECTIONS: ConfigSection[] = [
       { key: 'stop_loss_pct', label: 'Stop Loss (%)', type: 'number', value: 5, description: 'Default stop loss percentage' },
       { key: 'take_profit_pct', label: 'Take Profit (%)', type: 'number', value: 15, description: 'Default take profit percentage' },
       { key: 'max_consecutive_losses', label: 'Max Consecutive Losses', type: 'number', value: 3, description: 'Stop trading after this many losses' },
+    ]
+  },
+  {
+    name: 'Greek Analysis',
+    key: 'greeks',
+    fields: [
+      { key: 'delta', label: 'Delta Analysis', type: 'boolean', value: false, description: 'Direction & Probability - measures sensitivity to price movements' },
+      { key: 'theta', label: 'Theta Analysis', type: 'boolean', value: false, description: 'Time Decay - measures daily value erosion' },
+      { key: 'vega', label: 'Vega Analysis', type: 'boolean', value: false, description: 'Volatility Sensitivity - measures IV impact' },
+      { key: 'gamma', label: 'Gamma Analysis', type: 'boolean', value: false, description: 'Delta Acceleration - measures rate of delta change' },
+      { key: 'gex', label: 'GEX Analysis', type: 'boolean', value: false, description: 'Gamma Exposure - aggregate market maker gamma' },
+      { key: 'vex', label: 'VEX Analysis', type: 'boolean', value: false, description: 'Vega Exposure - aggregate volatility exposure' },
     ]
   },
   {
@@ -193,6 +205,7 @@ export function SettingsDashboard() {
             <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
               {section.key === 'data' && <Database className="w-5 h-5 text-emerald-400" />}
               {section.key === 'risk' && <Shield className="w-5 h-5 text-red-400" />}
+              {section.key === 'greeks' && <TrendingUp className="w-5 h-5 text-purple-400" />}
               {section.key === 'paper' && <Zap className="w-5 h-5 text-amber-400" />}
               {section.key === 'rate_limit' && <Globe className="w-5 h-5 text-blue-400" />}
               {section.name}
