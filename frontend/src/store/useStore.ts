@@ -143,6 +143,27 @@ export const useStore = create<EdgeStore>((set) => ({
   setDashboardLayout: (layout: 'grid' | 'list' | 'heatmap') => 
     set({ dashboardLayout: layout }),
 
+  // Analytics Cross-Chart Sync
+  selectedSymbol: null as string | null,
+  setSelectedSymbol: (symbol: string | null) => set({ selectedSymbol: symbol }),
+  
+  // Analytics Preset
+  analyticsPreset: 'default' as 'default' | 'greeks' | 'signals' | 'heatmap' | 'radar',
+  setAnalyticsPreset: (preset: 'default' | 'greeks' | 'signals' | 'heatmap' | 'radar') => 
+    set({ analyticsPreset: preset }),
+
+  // Interactive Chart Settings
+  chartCrosshair: true,
+  setChartCrosshair: (enabled: boolean) => set({ chartCrosshair: enabled }),
+  chartTooltips: true,
+  setChartTooltips: (enabled: boolean) => set({ chartTooltips: enabled }),
+  
+  // Auto-Refresh Settings
+  autoRefresh: true,
+  setAutoRefresh: (enabled: boolean) => set({ autoRefresh: enabled }),
+  refreshInterval: 5000,
+  setRefreshInterval: (interval: number) => set({ refreshInterval: interval }),
+
   // Correlation alerts (legacy)
   correlationAlerts: [],
   setCorrelationAlerts: (correlationAlerts) => set({ correlationAlerts }),
