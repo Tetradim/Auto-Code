@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Short Squeeze Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-deep: #0a0e17;
+      --bg-card: #111827;
+      --bg-elevated: #1a2332;
+      --border-subtle: #2a3548;
+      --text-muted: #8899a6;
+      --text-primary: #e8edf5;
+      --accent-bullish: #00ff88;
+      --accent-bearish: #ff3366;
+      --accent-warning: #ffaa00;
+      --accent-info: #00b8ff;
+    }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* Atmospheric Background */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: 
+        radial-gradient(ellipse 80% 50% at 20% 20%, rgba(0, 255, 136, 0.03) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(255, 51, 102, 0.03) 0%, transparent 50%),
+        linear-gradient(180deg, var(--bg-deep) 0%, #0d1219 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Header */
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+      animation: fadeSlideDown 0.8s ease-out;
+    }
+
+    @keyframes fadeSlideDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-bullish) 50%, var(--accent-info) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    <!-- Tab Navigation -->
+    .tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 2.5rem;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 1rem 2rem;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-card);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .tab-btn::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--accent-bullish);
+      transform: scaleX(0);
+      transition: transform 0.3s ease;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-primary);
+      border-color: var(--text-muted);
+    }
+
+    .tab-btn.active {
+      background: var(--bg-elevated);
+      color: var(--accent-bullish);
+      border-color: var(--accent-bullish);
+    }
+
+    .tab-btn.active::before {
+      transform: scaleX(1);
+    }
+
+    /* Tab Content */
+    #metrics {
+      display: block;
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Collapsible Sections */
+    .collapsible-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      margin-bottom: 2rem;
+      overflow: hidden;
+    }
+
+    .collapsible-header {
+      padding: 1.25rem 1.5rem;
+      background: var(--bg-elevated);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.3s ease;
+    }
+
+    .collapsible-header:hover {
+      background: #1f2937;
+    }
+
+    .collapsible-header h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.1rem;
+      margin: 0;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .collapsible-header h2::before {
+      content: '';
+      width: 3px;
+      height: 1.2em;
+      background: var(--accent-info);
+    }
+
+    .collapsible-icon {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--text-muted);
+      border-radius: 50%;
+      position: relative;
+      transition: transform 0.3s ease, border-color 0.3s ease;
+    }
+
+    .collapsible-icon::before,
+    .collapsible-icon::after {
+      content: '';
+      position: absolute;
+      background: var(--text-muted);
+      transition: background 0.3s ease;
+    }
+
+    .collapsible-icon::before {
+      width: 8px;
+      height: 2px;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .collapsible-icon::after {
+      width: 2px;
+      height: 8px;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .collapsible-section.open .collapsible-icon {
+      transform: rotate(45deg);
+      border-color: var(--accent-bullish);
+    }
+
+    .collapsible-section.open .collapsible-icon::before,
+    .collapsible-section.open .collapsible-icon::after {
+      background: var(--accent-bullish);
+    }
+
+    .collapsible-content {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .collapsible-section.open .collapsible-content {
+      max-height: 2000px;
+    }
+
+    .collapsible-inner {
+      padding: 2rem;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .metric-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 1.75rem;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+      animation: cardFloat 0.6s ease-out backwards;
+    }
+
+    .metric-card:nth-child(1) { animation-delay: 0.1s; }
+    .metric-card:nth-child(2) { animation-delay: 0.15s; }
+    .metric-card:nth-child(3) { animation-delay: 0.2s; }
+    .metric-card:nth-child(4) { animation-delay: 0.25s; }
+    .metric-card:nth-child(5) { animation-delay: 0.3s; }
+    .metric-card:nth-child(6) { animation-delay: 0.35s; }
+    .metric-card:nth-child(7) { animation-delay: 0.4s; }
+    .metric-card:nth-child(8) { animation-delay: 0.45s; }
+
+    @keyframes cardFloat {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .metric-card:hover {
+      border-color: var(--accent-bullish);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px rgba(0, 255, 136, 0.08);
+    }
+
+    .metric-card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-bullish), var(--accent-info));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .metric-card:hover::after {
+      opacity: 1;
+    }
+
+    .metric-badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.25rem 0.6rem;
+      background: var(--bg-elevated);
+      color: var(--accent-bullish);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 1rem;
+    }
+
+    .metric-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      color: var(--text-primary);
+    }
+
+    .metric-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+
+    .metric-formula {
+      font-size: 0.75rem;
+      padding: 0.75rem;
+      background: var(--bg-deep);
+      border-left: 2px solid var(--accent-info);
+      color: var(--accent-info);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .metric-threshold {
+      margin-top: 1rem;
+      font-size: 0.75rem;
+      padding: 0.75rem;
+      background: rgba(255, 170, 0, 0.1);
+      border: 1px solid var(--accent-warning);
+    }
+
+    .metric-threshold strong {
+      color: var(--accent-warning);
+    }
+
+    /* Tutorial Content */
+    .tutorial-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 2.5rem;
+      margin-bottom: 2rem;
+      animation: fadeIn 0.6s ease-out;
+    }
+
+    .tutorial-section h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.8rem;
+      margin-bottom: 1.5rem;
+      color: var(--accent-bullish);
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .tutorial-section h2::before {
+      content: '';
+      width: 4px;
+      height: 1.5em;
+      background: var(--accent-bullish);
+    }
+
+    .tutorial-section h3 {
+      font-size: 1.1rem;
+      color: var(--text-primary);
+      margin: 1.5rem 0 1rem;
+      font-weight: 600;
+    }
+
+    .tutorial-section p, .tutorial-section li {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.8;
+      margin-bottom: 1rem;
+    }
+
+    .tutorial-section ul {
+      padding-left: 1.5rem;
+    }
+
+    .tutorial-section li {
+      margin-bottom: 0.75rem;
+    }
+
+    .highlight-box {
+      background: var(--bg-elevated);
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      border-left: 3px solid var(--accent-bullish);
+    }
+
+    .highlight-box.warning {
+      border-left-color: var(--accent-warning);
+    }
+
+    .highlight-box.danger {
+      border-left-color: var(--accent-bearish);
+    }
+
+    /* Process Steps */
+    .process-steps {
+      counter-reset: step;
+    }
+
+    .process-step {
+      display: flex;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+      position: relative;
+    }
+
+    .process-step::before {
+      counter-increment: step;
+      content: counter(step);
+      font-family: 'Playfair Display', serif;
+      font-size: 2.5rem;
+      font-weight: 900;
+      color: var(--accent-bullish);
+      opacity: 0.3;
+      min-width: 3rem;
+    }
+
+    /* External Links */
+    .links-section {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .links-section h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.5rem;
+      margin-bottom: 1.5rem;
+      color: var(--text-primary);
+    }
+
+    .external-links {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+
+    .external-link {
+      display: block;
+      padding: 1.25rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      text-decoration: none;
+      transition: all 0.3s ease;
+      font-size: 0.85rem;
+    }
+
+    .external-link:hover {
+      border-color: var(--accent-info);
+      color: var(--accent-info);
+      transform: translateX(4px);
+    }
+
+    .external-link span {
+      display: block;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .container {
+        padding: 1rem;
+      }
+
+      .tabs {
+        gap: 0.25rem;
+      }
+
+      .tab-btn {
+        padding: 0.75rem 1rem;
+        font-size: 0.75rem;
+      }
+
+      .metric-card {
+        padding: 1.25rem;
+      }
+
+      .tutorial-section {
+        padding: 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Short Squeeze Tracker</h1>
+      <p class="subtitle">Identification Metrics &amp; Educational Guide</p>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="metrics">📊 Metrics Dashboard</button>
+    </nav>
+
+    <!-- METRICS DASHBOARD TAB -->
+    <div id="metrics">
+      
+      <!-- Tutorial Collapsible Section -->
+      <section class="collapsible-section open">
+        <div class="collapsible-header" onclick="this.parentElement.classList.toggle('open')">
+          <h2>What Is a Short Squeeze & How They Happen</h2>
+          <div class="collapsible-icon"></div>
+        </div>
+        <div class="collapsible-content">
+          <div class="collapsible-inner">
+            <p style="margin-bottom:1.5rem;color:var(--text-muted);line-height:1.8;">A short squeeze is a market phenomenon that occurs when a heavily shorted stock begins to rise in price, forcing short sellers to buy shares to cover their positions. This buying creates additional upward pressure, driving the price even higher in a self-reinforcing cycle.</p>
+            
+            <div class="highlight-box" style="margin-bottom:1.5rem;">
+              <strong>Basic Example:</strong> If 50% of a stock's float is sold short and the price starts rising, short sellers face mounting losses. To limit their losses, they must buy shares (cover) - this buying drives the price up further, triggering more short covering.
+            </div>
+
+            <h3 style="font-size:1rem;color:var(--text-primary);margin:1.5rem 0 1rem;font-weight:600;">How Short Squeezes Happen (5-Step Process)</h3>
+            
+            <div style="margin-bottom:1.5rem;">
+              <div style="display:flex;gap:1rem;margin-bottom:1.25rem;">
+                <span style="font-family:'Playfair Display',serif;font-size:2rem;font-weight:900;color:var(--accent-bullish);opacity:0.3;">1</span>
+                <div>
+                  <strong style="color:var(--text-primary);">Heavy Short Interest Builds</strong>
+                  <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;line-height:1.7;">Bearish traders sell shares they don't own, expecting the price to drop. When short interest exceeds 15-20% of float, conditions are ripe for a squeeze.</p>
+                </div>
+              </div>
+              <div style="display:flex;gap:1rem;margin-bottom:1.25rem;">
+                <span style="font-family:'Playfair Display',serif;font-size:2rem;font-weight:900;color:var(--accent-bullish);opacity:0.3;">2</span>
+                <div>
+                  <strong style="color:var(--text-primary);">Catalyst Triggers Price Rise</strong>
+                  <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;line-height:1.7;">Positive news, earnings beat, or buying pressure causes the stock to rise. Once price moves up, short sellers start feeling pain.</p>
+                </div>
+              </div>
+              <div style="display:flex;gap:1rem;margin-bottom:1.25rem;">
+                <span style="font-family:'Playfair Display',serif;font-size:2rem;font-weight:900;color:var(--accent-bullish);opacity:0.3;">3</span>
+                <div>
+                  <strong style="color:var(--text-primary);">Short Sellers Begin Covering</strong>
+                  <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;line-height:1.7;">As losses mount, short sellers buy shares to close positions. This creates additional demand, pushing price higher.</p>
+                </div>
+              </div>
+              <div style="display:flex;gap:1rem;margin-bottom:1.25rem;">
+                <span style="font-family:'Playfair Display',serif;font-size:2rem;font-weight:900;color:var(--accent-bullish);opacity:0.3;">4</span>
+                <div>
+                  <strong style="color:var(--text-primary);">Feedback Loop Accelerates</strong>
+                  <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;line-height:1.7;">More covering creates more buying pressure = higher price = more margin calls and forced covering. This compounds rapidly.</p>
+                </div>
+              </div>
+              <div style="display:flex;gap:1rem;margin-bottom:1.25rem;">
+                <span style="font-family:'Playfair Display',serif;font-size:2rem;font-weight:900;color:var(--accent-bullish);opacity:0.3;">5</span>
+                <div>
+                  <strong style="color:var(--text-primary);">Peak and Reversal</strong>
+                  <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;line-height:1.7;">The squeeze peaks when most shorts have covered. Price may then reverse dramatically as buyers exhaust themselves.</p>
+                </div>
+              </div>
+            </div>
+
+            <h3 style="font-size:1rem;color:var(--text-primary);margin:1.5rem 0 1rem;font-weight:600;">How to Keep a Short Squeeze Going</h3>
+            
+            <ul style="padding-left:1.25rem;margin-bottom:1rem;">
+              <li style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;line-height:1.7;"><strong style="color:var(--text-primary);">Buy call options</strong> - Forces market makers to buy underlying stock for delta hedging</li>
+              <li style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;line-height:1.7;"><strong style="color:var(--text-primary);">Limit sell orders</strong> - Holders refuse to sell, creating artificial supply shortage</li>
+              <li style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;line-height:1.7;"><strong style="color:var(--text-primary);">Coordinated buying</strong> - Social platforms driving FOMO</li>
+            </ul>
+
+            <p style="font-size:0.85rem;color:var(--accent-warning);line-height:1.7;border-left:3px solid var(--accent-warning);padding-left:1rem;"><strong>The Golden Rule:</strong> Sustained squeezes require constant new buying pressure. Once coverable shares are exhausted, the squeeze ends.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Resources Collapsible Section -->
+      <section class="collapsible-section open">
+        <div class="collapsible-header" onclick="this.parentElement.classList.toggle('open')">
+          <h2>External Tutorials & Links</h2>
+          <div class="collapsible-icon"></div>
+        </div>
+        <div class="collapsible-content">
+          <div class="collapsible-inner">
+            <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1.5rem;">Learn more about short squeeze mechanics and trading strategies:</p>
+            <div class="external-links">
+              <a href="https://www.bitget.com/academy/short-squeeze-guide" class="external-link" target="_blank" rel="noopener">
+                Short Squeeze Explained: Complete Guide
+                <span>Bitget Academy - Comprehensive overview</span>
+              </a>
+              <a href="https://www.luxalgo.com/blog/days-to-cover-explained-a-crucial-metric-for-short-squeeze-analysis/" class="external-link" target="_blank" rel="noopener">
+                Days to Cover: Metric Deep Dive
+                <span>LuxAlgo - DTC calculations</span>
+              </a>
+              <a href="https://www.wallstreetprep.com/knowledge/days-to-cover/" class="external-link" target="_blank" rel="noopener">
+                Days to Cover Formula & Calculator
+                <span>Wall Street Prep</span>
+              </a>
+              <a href="https://www.investopedia.com/terms/d/daystocover.asp" class="external-link" target="_blank" rel="noopener">
+                Understanding Days to Cover
+                <span>Investopedia</span>
+              </a>
+              <a href="https://www.gurufocus.com/term/short-ratio" class="external-link" target="_blank" rel="noopener">
+                Short Ratio Definition
+                <span>GuruFocus</span>
+              </a>
+              <a href="https://www.reddit.com/r/Shortsqueeze/comments/177vz7w/cheatsheet_the_basics_of_short_squeezes_a_3min/" class="external-link" target="_blank" rel="noopener">
+                Short Squeeze Cheatsheet
+                <span>Reddit r/Shortsqueeze</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Metrics Grid -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <span class="metric-badge">Primary</span>
+          <h3 class="metric-title">Days to Cover (DTC)</h3>
+          <p class="metric-desc">The estimated number of trading days required for all short sellers to close their positions, based on average daily trading volume. Higher values indicate more vulnerable short positions.</p>
+          <div class="metric-formula">
+            Short Interest ÷ Average Daily Volume
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> DTC > 5-8 days indicates elevated squeeze potential
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-badge">Primary</span>
+          <h3 class="metric-title">Short Interest (% of Float)</h3>
+          <p class="metric-desc">The percentage of a company's float (tradable shares) that have been sold short. This measures conviction among bearish investors.</p>
+          <div class="metric-formula">
+            (Shares Shorted ÷ Float Shares) × 100
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> >15% of float; >20% is highly vulnerable
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-badge">Critical</span>
+          <h3 class="metric-title">Short Interest / ADV Ratio</h3>
+          <p class="metric-desc">Ratio of current short interest to average daily volume. Shows how many days of avg volume would be needed to cover all shorts.</p>
+          <div class="metric-formula">
+            Short Interest ÷ Average Daily Volume
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> >3-4 days indicates squeeze vulnerability
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-badge">Important</span>
+          <h3 class="metric-title">Borrow Fee / Fee Rate</h3>
+          <p class="metric-desc">The annualized interest rate charged to borrow shares for shorting. Spikes when supply is tight.</p>
+          <div class="metric-formula">
+            Annual Rate (updated daily by brokers)
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> >50-100% annually indicates extreme scarcity
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-badge">Secondary</span>
+          <h3 class="metric-title">Cost to Borrow (CTB)</h3>
+          <p class="metric-desc">Another term for borrow fee - the actual cost for traders to maintain short positions over time.</p>
+          <div class="metric-formula">
+            Updated daily per broker inventory
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> Rising CTB = tightening supply
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-badge">Confirming</span>
+          <h3 class="metric-title">Utilization Rate</h3>
+          <p class="metric-desc">The percentage of available shares that have been borrowed. High utilization means few shares left to short.</p>
+          <div class="metric-formula">
+            (Shares Borrowed ÷ Shares Available) × 100
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> >90% utilization = limited short capacity
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-badge">Context</span>
+          <h3 class="metric-title">Institutional Ownership</h3>
+          <p class="metric-desc">Percentage of shares held by institutions. High institutional ownership reduces effective float available for covering.</p>
+          <div class="metric-formula">
+            Shares Held by Institutions ÷ Total Shares
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> >80% institutional = tight float for covering
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-badge">Confirming</span>
+          <h3 class="metric-title">On-Loss Ratio / Short Squeeze Index</h3>
+          <p class="metric-desc">Measures the potential for losses among short sellers. Higher values indicate more pain if price rises.</p>
+          <div class="metric-formula">
+            Short Interest × Days to Cover
+          </div>
+          <div class="metric-threshold">
+            <strong>Squeeze Signal:</strong> Combined metrics >100 suggests strong squeeze potential
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Collapsible sections work via CSS/click handler
+  </script>
+</body>
+</html>
