@@ -59,7 +59,9 @@ jobs:
           Write-Host "=== Starting Frontend Build ===" -ForegroundColor Cyan
           Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
           npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Host "=== Frontend Build Complete ===" -ForegroundColor Green
 
       - name: Verify frontend build
