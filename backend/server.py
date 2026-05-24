@@ -1402,6 +1402,42 @@ else:
         print("=" * 50)
 
 
+def _open_browser_when_ready(url: str, timeout_seconds: float = 30.0) -> None:
+    """Open the desktop UI once the local FastAPI server accepts requests."""
+    if os.getenv("SENTINEL_EDGE_OPEN_BROWSER", "true").lower() in ("0", "false", "no", "off"):
+        logger.info("Browser auto-open disabled by SENTINEL_EDGE_OPEN_BROWSER")
+        return
+
+    def _worker() -> None:
+        import urllib.request
+        import webbrowser
+
+        deadline = time.time() + timeout_seconds
+        health_url = f"{url.rstrip('/')}/api/health"
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(health_url, timeout=1):
+                    break
+            except Exception:
+                time.sleep(0.5)
+        else:
+            logger.warning("Sentinel Edge UI did not become ready before browser open timeout")
+            return
+
+        try:
+            webbrowser.open(url, new=2)
+            logger.info("Opened Sentinel Edge UI in browser: %s", url)
+        except Exception as exc:
+            logger.warning("Unable to open Sentinel Edge UI in browser: %s", exc)
+
+    import threading
+    threading.Thread(target=_worker, name="sentinel-edge-browser-open", daemon=True).start()
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    port = int(os.getenv("SENTINEL_EDGE_PORT", os.getenv("PORT", "8001")))
+    host = os.getenv("SENTINEL_EDGE_HOST", "0.0.0.0")
+    ui_url = os.getenv("SENTINEL_EDGE_UI_URL", f"http://localhost:{port}")
+    _open_browser_when_ready(ui_url)
+    uvicorn.run(app, host=host, port=port)
