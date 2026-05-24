@@ -3,7 +3,7 @@
  * Configuration management for Edge
  */
 import React, { useEffect, useState } from 'react';
-import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle, TrendingUp, ShieldAlert, BarChart3 } from 'lucide-react';
+import { Settings, Save, RefreshCw, Database, Zap, Shield, Globe, AlertCircle, TrendingUp, ShieldAlert, BarChart3, CheckCircle, XCircle } from 'lucide-react';
 
 interface ConfigSection {
   name: string;
@@ -18,13 +18,40 @@ interface ConfigSection {
   }[];
 }
 
+interface ProviderInfo {
+  key: string;
+  label: string;
+  quote: boolean;
+  ohlcv: boolean;
+  requires_key: boolean;
+  configured: boolean;
+  enabled: boolean;
+  intraday?: boolean;
+  eod?: boolean;
+  free_tier: string;
+  notes: string;
+}
+
+const MARKET_DATA_OPTIONS = [
+  'yfinance',
+  'finnhub',
+  'polygon',
+  'alpha_vantage',
+  'twelve_data',
+];
+
+const isSecretField = (key: string) => {
+  const normalized = key.toLowerCase();
+  return normalized.includes('api_key') || normalized.includes('secret') || normalized.includes('token');
+};
+
 const CONFIG_SECTIONS: ConfigSection[] = [
   {
     name: 'Data Source',
     key: 'data',
     fields: [
-      { key: 'source', label: 'Data Source', type: 'select', value: 'mock', options: ['mock', 'yfinance', 'binance'], description: 'Where to fetch market data' },
-      { key: 'api_key', label: 'API Key', type: 'text', value: '', description: 'Optional API key for premium data' },
+      { key: 'source', label: 'Primary Data Source', type: 'select', value: 'yfinance', options: MARKET_DATA_OPTIONS, description: 'Preferred intraday market-data source. Backend fallback order is controlled by MARKET_DATA_PROVIDER_ORDER.' },
+      { key: 'fallback_order', label: 'Fallback Order', type: 'text', value: 'yfinance,finnhub,polygon,alpha_vantage,twelve_data', description: 'Comma-separated intraday provider order for backend env MARKET_DATA_PROVIDER_ORDER. EOD-only sources are ignored for live ticks.' },
     ]
   },
   {
@@ -92,6 +119,8 @@ export function SettingsDashboard() {
   const [sections, setSections] = useState(CONFIG_SECTIONS);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providerOrder, setProviderOrder] = useState<string[]>([]);
 
   // Load saved config from localStorage
   useEffect(() => {
@@ -99,18 +128,51 @@ export function SettingsDashboard() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        const sanitized = Object.fromEntries(
+          Object.entries(parsed).map(([sectionKey, values]) => [
+            sectionKey,
+            Object.fromEntries(
+              Object.entries((values as Record<string, any>) || {}).filter(([fieldKey]) => !isSecretField(fieldKey))
+            ),
+          ])
+        );
+        if (JSON.stringify(sanitized) !== saved) {
+          localStorage.setItem('edge_config', JSON.stringify(sanitized));
+        }
         // Update sections with saved values
         setSections(sections.map(section => ({
           ...section,
           fields: section.fields.map(field => ({
             ...field,
-            value: parsed[section.key]?.[field.key] ?? field.value
+            value: sanitized[section.key]?.[field.key] ?? field.value
           }))
         })));
       } catch (e) {
         console.error('Failed to load saved config');
       }
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadProviders = async () => {
+      try {
+        const response = await fetch('/api/market-data/providers');
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled) return;
+        setProviders(data.providers || []);
+        setProviderOrder(data.fallback_order || []);
+      } catch (e) {
+        // Provider metadata is informational only; keep Settings usable offline.
+      }
+    };
+    loadProviders();
+    const id = window.setInterval(loadProviders, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   const handleFieldChange = (sectionKey: string, fieldKey: string, value: any) => {
@@ -134,6 +196,7 @@ export function SettingsDashboard() {
     sections.forEach(section => {
       config[section.key] = {};
       section.fields.forEach(field => {
+        if (isSecretField(field.key)) return;
         config[section.key][field.key] = field.value;
       });
     });
@@ -212,7 +275,50 @@ export function SettingsDashboard() {
         <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
         <div className="text-sm text-blue-300">
           <p className="font-medium">Settings are stored locally</p>
-          <p className="text-blue-400/70">Your configuration is saved to your browser and persists across sessions.</p>
+          <p className="text-blue-400/70">Your non-secret configuration is saved to your browser and persists across sessions. API keys are not saved here; configure them as backend environment variables.</p>
+        </div>
+      </div>
+
+      {/* Market Data Providers */}
+      <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Database className="w-5 h-5 text-emerald-400" />
+          Market Data Providers
+        </h3>
+        <p className="text-sm text-gray-400 mb-4">
+          Edge monitors market data only. API keys are configured on the backend as environment variables; this panel only shows provider availability.
+        </p>
+        <div className="space-y-3">
+          {providers.length === 0 && (
+            <div className="text-sm text-gray-500">Provider metadata unavailable until the backend is running.</div>
+          )}
+          {providers.map((provider) => (
+            <div key={provider.key} className="flex items-start justify-between gap-4 rounded-lg border border-gray-700 bg-gray-900/50 p-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-white">{provider.label}</span>
+                  {providerOrder.includes(provider.key) && (
+                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">intraday fallback</span>
+                  )}
+                  {provider.eod && !provider.intraday && (
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-300">EOD/backfill only</span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">{provider.free_tier}</p>
+                <p className="mt-1 text-xs text-gray-500">{provider.notes}</p>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                {provider.configured ? (
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-gray-500" />
+                )}
+                <span className={provider.configured ? 'text-emerald-300' : 'text-gray-500'}>
+                  {provider.requires_key ? (provider.configured ? 'key configured' : 'needs env key') : 'no key'}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

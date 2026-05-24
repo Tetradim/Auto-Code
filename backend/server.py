@@ -25,6 +25,7 @@ from engine import DecisionEngine
 from market_hours import MarketHours
 from orb import ORBTracker
 from price_fetcher import PriceFetcher
+from providers.catalog import configured_key_sources, default_provider_order, provider_catalog
 from pulse_client import PulseClient
 from scheduler import EvaluationScheduler
 from signals import SignalEngine
@@ -77,6 +78,7 @@ _mongo_client = None
 scheduler: EvaluationScheduler = None
 scheduler_task = None
 edge: SentinelEdge = None
+price_fetcher: PriceFetcher = None
 
 # NEW: Resilience module singletons (initialized in lifespan)
 state_persistence: StatePersistence = None
@@ -209,7 +211,7 @@ class BacktestReportRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Wire all components, start background tasks, then tear down cleanly."""
-    global scheduler, scheduler_task, edge, db, _mongo_client
+    global scheduler, scheduler_task, edge, db, _mongo_client, price_fetcher
     global state_persistence, idempotency_manager, audit_trail, drift_detector, config_hasher, audit_logger
 
     logger.info("🚀 Starting Sentinel Edge...")
@@ -555,8 +557,70 @@ async def get_ticker_config(symbol: str):
 
 @api_router.get("/providers/health")
 async def get_providers_health(price_fetcher: PriceFetcher = Depends(_require_price_fetcher)):
-    """Return health status for all price providers."""
+    """Return legacy health status for all price providers."""
     return price_fetcher.get_provider_health()
+
+
+@api_router.get("/market-data/providers")
+async def get_market_data_providers():
+    """Return browser-safe metadata for supported market-data providers.
+
+    This endpoint never returns API-key values. It only exposes provider names,
+    capabilities, free-tier notes, configured key presence, and the current
+    intraday fallback order so Settings can guide users without leaking secrets.
+    """
+    return {
+        "providers": provider_catalog(),
+        "fallback_order": default_provider_order(),
+        "configured_keys": configured_key_sources(),
+    }
+
+
+@api_router.get("/providers")
+async def list_providers():
+    """Compatibility alias for market-data provider metadata."""
+    return await get_market_data_providers()
+
+
+@api_router.get("/providers/config")
+async def get_providers_config():
+    """Return provider config metadata with secret values redacted."""
+    return {
+        "fallback_order": default_provider_order(),
+        "configured_keys": configured_key_sources(),
+        "secret_values": "redacted",
+    }
+
+
+@api_router.get("/price/{symbol}")
+async def get_current_market_price(
+    symbol: str,
+    request: Request,
+    price_fetcher: PriceFetcher = Depends(_require_price_fetcher),
+):
+    """Return current observed price from Edge's market-data cache/providers."""
+    _enforce_rate_limit(request)
+    sym = _symbol(symbol)
+    price = await price_fetcher.get_current_price(sym)
+    if price is None:
+        raise HTTPException(status_code=503, detail=f"No price available for {sym}")
+    return {"symbol": sym, "price": price}
+
+
+@api_router.get("/quote/{symbol}")
+async def get_market_quote(
+    symbol: str,
+    request: Request,
+    price_fetcher: PriceFetcher = Depends(_require_price_fetcher),
+):
+    """Return current observed price and volume for a symbol."""
+    _enforce_rate_limit(request)
+    sym = _symbol(symbol)
+    quote = await price_fetcher.get_price_with_volume(sym)
+    if quote is None:
+        raise HTTPException(status_code=503, detail=f"No quote available for {sym}")
+    price, volume = quote
+    return {"symbol": sym, "price": price, "volume": volume}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

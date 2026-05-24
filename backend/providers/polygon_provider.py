@@ -1,4 +1,4 @@
-"""Polygon.io Provider - Full implementation (Phase 6)"""
+﻿"""Polygon.io Provider - Full implementation (Phase 6)"""
 import logging
 import os
 import time
@@ -98,9 +98,13 @@ class PolygonProvider(BasePriceProvider):
             # Map interval to polygon params
             multiplier, timespan = (1, "minute") if interval == "1m" else (5, "minute")
             
+            to_date = datetime.utcnow().date()
+            days = 5 if period in ("1d", "2d", "5d") else 30
+            from_date = to_date - timedelta(days=days)
+
             async with httpx.AsyncClient() as client:
                 resp = await client.get(
-                    f"{self.base_url}/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{period}",
+                    f"{self.base_url}/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{from_date}/{to_date}",
                     params={"apiKey": self.api_key, "adjusted": "true", "sort": "asc"},
                     timeout=10.0
                 )

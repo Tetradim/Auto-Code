@@ -53,7 +53,12 @@ import pandas as pd
 import yfinance as yf
 
 from metrics import current_price, price_fetch_failures_total, price_fetch_latency
+from providers.alpha_vantage_provider import AlphaVantageProvider
+from providers.catalog import default_provider_order
+from providers.finnhub_provider import FinnhubProvider
 from providers.health import ProviderHealth
+from providers.polygon_provider import PolygonProvider
+from providers.twelve_data_provider import TwelveDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +96,17 @@ class PriceFetcher:
         self._ws_manager = None
         # Provider health monitoring
         self.health = ProviderHealth()
+        self.provider_order = default_provider_order()
+        self.providers = {
+            "alpha_vantage": AlphaVantageProvider(),
+            "finnhub": FinnhubProvider(),
+            "polygon": PolygonProvider(),
+            "twelve_data": TwelveDataProvider(),
+        }
         logger.info(
-            "PriceFetcher initialised (yfinance, cache TTL=%ds)", self.OHLCV_CACHE_TTL
+            "PriceFetcher initialised (providers=%s, cache TTL=%ds)",
+            ",".join(self.provider_order),
+            self.OHLCV_CACHE_TTL,
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -158,44 +172,50 @@ class PriceFetcher:
             if entry and now - entry[1] < self.OHLCV_CACHE_TTL:
                 return entry[0]
 
-            # ── 4. Fetch in thread ────────────────────────────────────────────
+            # ── 4. Fetch using configured intraday provider fallback order ────
             t0 = time.monotonic()
-            try:
-                loop = asyncio.get_running_loop()
-                df: pd.DataFrame = await loop.run_in_executor(None, _yf_fetch, symbol)
+            for provider_name in self.provider_order:
+                try:
+                    if provider_name == "yfinance":
+                        loop = asyncio.get_running_loop()
+                        df = await loop.run_in_executor(None, _yf_fetch, symbol)
+                        price_fetch_latency.labels(source="yfinance").observe(
+                            time.monotonic() - t0
+                        )
+                    else:
+                        provider = self.providers.get(provider_name)
+                        if provider is None:
+                            continue
+                        df = await provider.get_ohlcv(symbol, period="2d", interval="1m")
 
-                price_fetch_latency.labels(source="yfinance").observe(
-                    time.monotonic() - t0
-                )
+                    if df is None or df.empty:
+                        price_fetch_failures_total.labels(
+                            symbol=symbol, source=provider_name
+                        ).inc()
+                        self.health.record_failure(provider_name)
+                        logger.debug("No OHLCV data returned for %s from %s", symbol, provider_name)
+                        continue
 
-                if df is None or df.empty:
+                    # ── 5. Cache + metrics ────────────────────────────────────
+                    self._cache[symbol] = (df, time.monotonic())
+                    self.health.record_success(provider_name)
+                    last_close = float(df["Close"].iloc[-1])
+                    current_price.labels(symbol=symbol).set(last_close)
+                    logger.debug(
+                        "Fetched %s via %s — %d bars, last=$%.2f (%.2fs)",
+                        symbol, provider_name, len(df), last_close, time.monotonic() - t0,
+                    )
+                    return df
+
+                except Exception as exc:
                     price_fetch_failures_total.labels(
-                        symbol=symbol, source="yfinance"
+                        symbol=symbol, source=provider_name
                     ).inc()
-                    logger.warning("No OHLCV data returned for %s", symbol)
-                    # Return stale data rather than None
-                    self.health.record_failure("yfinance")
-                    return self._cache[symbol][0] if symbol in self._cache else None
+                    self.health.record_failure(provider_name)
+                    logger.error("%s fetch error for %s: %s", provider_name, symbol, exc)
 
-                # ── 5. Cache + metrics ────────────────────────────────────────
-                self._cache[symbol] = (df, time.monotonic())
-                self.health.record_success("yfinance")
-                last_close = float(df["Close"].iloc[-1])
-                current_price.labels(symbol=symbol).set(last_close)
-                logger.debug(
-                    "Fetched %s — %d bars, last=$%.2f (%.2fs)",
-                    symbol, len(df), last_close, time.monotonic() - t0,
-                )
-                return df
-
-            except Exception as exc:
-                # ── 6. Error — return stale rather than crashing ──────────────
-                price_fetch_failures_total.labels(
-                    symbol=symbol, source="yfinance"
-                ).inc()
-                self.health.record_failure("yfinance")
-                logger.error("yfinance fetch error for %s: %s", symbol, exc)
-                return self._cache[symbol][0] if symbol in self._cache else None
+            # ── 6. All providers failed — return stale rather than crashing ───
+            return self._cache[symbol][0] if symbol in self._cache else None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public API
