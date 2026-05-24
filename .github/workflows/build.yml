@@ -119,13 +119,16 @@ jobs:
             --hidden-import pymongo `
             --hidden-import yfinance `
             --hidden-import prometheus_client `
+            --hidden-import httpx `
             --hidden-import talib `
             --hidden-import numpy `
             --hidden-import pandas `
+            --collect-all httpx `
             --collect-all yfinance `
             --collect-all motor `
             --collect-all pymongo `
             --collect-all talib `
+            --copy-metadata httpx `
             --noconfirm `
             server.py 2>&1 | Tee-Object -FilePath build.log
 
@@ -191,12 +194,26 @@ jobs:
           "@
           $launcher | Out-File -Encoding ASCII "backend/dist/SentinelEdge/Start Sentinel Edge.bat"
 
+      - name: Copy static beside exe
+        run: |
+          if (!(Test-Path "backend/static/index.html")) {
+            Write-Host "ERROR: backend/static/index.html not found"
+            exit 1
+          }
+          Remove-Item "backend/dist/SentinelEdge/static" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "backend/static" -Destination "backend/dist/SentinelEdge/static" -Recurse -Force
+          Write-Host "Static frontend copied beside SentinelEdge.exe"
+
       - name: Verify exe
         run: |
           $exe = "backend/dist/SentinelEdge/SentinelEdge.exe"
           if (!(Test-Path $exe)) {
             Write-Host "ERROR: $exe not found"
             Get-ChildItem -Path "backend/dist" -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue
+            exit 1
+          }
+          if (!(Test-Path "backend/dist/SentinelEdge/static/index.html")) {
+            Write-Host "ERROR: packaged frontend static/index.html not found"
             exit 1
           }
           Write-Host "SUCCESS: Built $exe"

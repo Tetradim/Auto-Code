@@ -1248,51 +1248,45 @@ app.add_middleware(
 # Frontend Static Files
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Get the frontend build directory (relative to backend)
+# Get frontend build directories for source, installed, and PyInstaller layouts.
 root_dir = Path(__file__).parent.parent
-
-# For installed exe, also check current working directory
 if not root_dir.exists():
     root_dir = Path.cwd()
+
+exe_dir = Path(sys.executable).parent if getattr(sys, "executable", None) else root_dir
+bundle_dir = Path(getattr(sys, "_MEIPASS", exe_dir))
 
 frontend_dist = root_dir / "frontend" / "dist"
 frontend_src = root_dir / "frontend" / "public"
 backend_static = root_dir / "backend" / "static"
-
-# Also check if running from installed location (exe folder)
-exe_dir = Path(sys.executable).parent if hasattr(sys, 'executable') else root_dir
 installed_static = exe_dir / "static"
+bundled_static = bundle_dir / "static"
 
-# Determine the actual static path - prefer backend/static, then exe folder static
-actual_static = backend_static if backend_static.exists() else installed_static
+static_candidates = [
+    backend_static,
+    installed_static,
+    bundled_static,
+    frontend_dist,
+    frontend_src,
+]
+actual_static = next((path for path in static_candidates if path.exists()), None)
 
 print(f"Root dir: {root_dir}")
 print(f"Exe dir: {exe_dir}")
+print(f"Bundle dir: {bundle_dir}")
 print(f"Frontend dist exists: {frontend_dist.exists()}")
 print(f"Frontend src exists: {frontend_src.exists()}")
 print(f"Backend static exists: {backend_static.exists()}")
 print(f"Installed static exists: {installed_static.exists()}")
+print(f"Bundled static exists: {bundled_static.exists()}")
 print(f"Actual static path: {actual_static}")
 
-# Mount frontend static files - check multiple possible locations
 frontend_mounted = False
 
-# 1. Check actual_static first (for packaged builds from workflow or installed exe)
-if actual_static.exists():
+if actual_static is not None:
     app.mount("/", StaticFiles(directory=str(actual_static), html=True), name="static")
     print(f"Frontend mounted from {actual_static}")
     frontend_mounted = True
-# 2. Check frontend/dist (for local production builds)
-elif frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
-    print(f"Frontend mounted from {frontend_dist}")
-    frontend_mounted = True
-# 3. Check frontend/public (for dev mode)
-elif frontend_src.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_src), html=True), name="static")
-    print(f"Frontend mounted from {frontend_src} (dev mode)")
-    frontend_mounted = True
-# 4. None found - try to build the frontend automatically
 else:
     print("WARNING: No frontend found - attempting to build automatically...")
     import subprocess
