@@ -25,7 +25,7 @@ from engine import DecisionEngine
 from market_hours import MarketHours
 from orb import ORBTracker
 from price_fetcher import PriceFetcher
-from providers.catalog import configured_key_sources, default_provider_order, provider_catalog
+from providers.catalog import active_provider_order, configured_key_sources, default_provider_order, provider_catalog
 from pulse_client import PulseClient
 from scheduler import EvaluationScheduler
 from signals import SignalEngine
@@ -571,8 +571,10 @@ async def get_market_data_providers():
     """
     return {
         "providers": provider_catalog(),
-        "fallback_order": default_provider_order(),
+        "fallback_order": active_provider_order(),
+        "configured_order": active_provider_order(),
         "configured_keys": configured_key_sources(),
+        "supported_order": default_provider_order(),
     }
 
 
@@ -586,8 +588,10 @@ async def list_providers():
 async def get_providers_config():
     """Return provider config metadata with secret values redacted."""
     return {
-        "fallback_order": default_provider_order(),
+        "fallback_order": active_provider_order(),
+        "configured_order": active_provider_order(),
         "configured_keys": configured_key_sources(),
+        "supported_order": default_provider_order(),
         "secret_values": "redacted",
     }
 

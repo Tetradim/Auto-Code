@@ -224,6 +224,25 @@ def default_provider_order() -> List[str]:
     return filtered or ["yfinance"]
 
 
+def active_provider_order() -> List[str]:
+    """Return the intraday providers Edge may call right now.
+
+    Keyed providers are active only when their backend environment variable is
+    present. This avoids noisy failures, accidental paid/API calls, and browser
+    configuration drift. No-key providers such as yfinance remain available.
+    """
+    by_key = {provider.key: provider for provider in PROVIDER_CATALOG}
+    active: List[str] = []
+    for key in default_provider_order():
+        provider = by_key.get(key)
+        if provider is None:
+            continue
+        if provider.requires_key and not (provider.env_var and os.getenv(provider.env_var)):
+            continue
+        active.append(key)
+    return active or ["yfinance"]
+
+
 def configured_key_sources() -> Dict[str, bool]:
     """Expose only key presence, never key values."""
     return {

@@ -54,7 +54,7 @@ import yfinance as yf
 
 from metrics import current_price, price_fetch_failures_total, price_fetch_latency
 from providers.alpha_vantage_provider import AlphaVantageProvider
-from providers.catalog import default_provider_order
+from providers.catalog import active_provider_order
 from providers.finnhub_provider import FinnhubProvider
 from providers.health import ProviderHealth
 from providers.polygon_provider import PolygonProvider
@@ -96,7 +96,7 @@ class PriceFetcher:
         self._ws_manager = None
         # Provider health monitoring
         self.health = ProviderHealth()
-        self.provider_order = default_provider_order()
+        self.provider_order = active_provider_order()
         self.providers = {
             "alpha_vantage": AlphaVantageProvider(),
             "finnhub": FinnhubProvider(),
