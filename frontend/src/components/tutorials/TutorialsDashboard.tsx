@@ -7,7 +7,7 @@ interface Tutorial {
   dashboard: string;
   icon: string;
   difficulty: 'Advanced' | 'Intermediate';
-  color: 'blue' | 'emerald' | 'amber' | 'red';
+  color: 'blue' | 'emerald' | 'amber' | 'red' | 'purple';
   brief: string;
   significance: string;
   interpretation: string;
@@ -137,6 +137,7 @@ const colorClasses = {
   emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', icon: 'text-emerald-400' },
   amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-400', icon: 'text-amber-400' },
   red: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400', icon: 'text-red-400' },
+  purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/30', text: 'text-purple-400', icon: 'text-purple-400' },
 };
 
 const difficultyColors = {

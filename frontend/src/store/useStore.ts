@@ -52,10 +52,53 @@ interface EdgeStore {
     theta: boolean;  // Theta Time Decay
     vega: boolean; // Vega Volatility Sensitivity
     gamma: boolean; // Gamma Delta Acceleration
+    rho: boolean; // Interest rate sensitivity
     gex: boolean; // Gamma Exposure
     vex: boolean; // Vega Exposure
   };
   setGreeksEnabled: (enabled: Partial<EdgeStore['greeksEnabled']>) => void;
+
+  // IV Percentile Tracking
+  ivTrackingEnabled: boolean;
+  setIVTracking: (enabled: boolean) => void;
+
+  // Volatility Spike Protection
+  spikeProtectionEnabled: boolean;
+  setSpikeProtection: (enabled: boolean) => void;
+
+  // Short Interest Analysis
+  shortInterestEnabled: boolean;
+  setShortInterestEnabled: (enabled: boolean) => void;
+  shortInterestData: Record<string, unknown>;
+  setShortInterestData: (data: Record<string, unknown>) => void;
+
+  // Chart Type Selection (Area, Bar, Line, Candlestick)
+  defaultChartType: 'area' | 'bar' | 'line' | 'candlestick' | 'heatmap';
+  setDefaultChartType: (type: EdgeStore['defaultChartType']) => void;
+
+  // Dashboard Layout (Grid, List, Heatmap)
+  dashboardLayout: 'grid' | 'list' | 'heatmap';
+  setDashboardLayout: (layout: EdgeStore['dashboardLayout']) => void;
+
+  // Analytics Cross-Chart Sync
+  selectedSymbol: string | null;
+  setSelectedSymbol: (symbol: string | null) => void;
+
+  // Analytics Preset
+  analyticsPreset: 'default' | 'greeks' | 'signals' | 'heatmap' | 'radar';
+  setAnalyticsPreset: (preset: EdgeStore['analyticsPreset']) => void;
+
+  // Interactive Chart Settings
+  chartCrosshair: boolean;
+  setChartCrosshair: (enabled: boolean) => void;
+  chartTooltips: boolean;
+  setChartTooltips: (enabled: boolean) => void;
+
+  // Auto-Refresh Settings
+  autoRefresh: boolean;
+  setAutoRefresh: (enabled: boolean) => void;
+  refreshInterval: number;
+  setRefreshInterval: (interval: number) => void;
 
   // Correlation alerts (legacy — kept for DecisionFeed backward compat)
   correlationAlerts: CorrelationCluster[];
@@ -130,8 +173,8 @@ export const useStore = create<EdgeStore>((set) => ({
   // Short Interest Analysis
   shortInterestEnabled: false,
   setShortInterestEnabled: (enabled: boolean) => set({ shortInterestEnabled: enabled }),
-  shortInterestData: Record<string, any>,
-  setShortInterestData: (data: Record<string, any>) => set({ shortInterestData: data }),
+  shortInterestData: {},
+  setShortInterestData: (data: Record<string, unknown>) => set({ shortInterestData: data }),
 
   // Chart Type Selection (Area, Bar, Line, Candlestick)
   defaultChartType: 'line' as 'area' | 'bar' | 'line' | 'candlestick' | 'heatmap',

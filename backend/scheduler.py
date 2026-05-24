@@ -93,6 +93,26 @@ class EvaluationScheduler:
         self._daily_pnl_cache = None
         self._daily_pnl_timestamp = None
 
+        self.correlation = CorrelationEngine(
+            db=self.db,
+            pulse_base_url=os.getenv("PULSE_API_URL", "http://pulse:8001"),
+            pulse_overrides_enabled=os.getenv("DEMO_MODE", "false").lower() not in ("true", "1", "yes"),
+            window_sec=120,
+            min_symbols=3,
+            cooldown_sec=300,
+        )
+
+        # Phase 3: WebSocket integration
+        self.ws_manager = WebSocketManager(
+            self.prices,
+            self._on_ws_price_update,
+            get_active_symbols=lambda: set(self.active_tickers)
+        )
+        self.prices.set_ws_manager(self.ws_manager)
+        logger.info("WebSocketManager wired into scheduler")
+
+        logger.info("Scheduler initialised with %d tickers", len(self.active_tickers))
+
 
     async def _get_daily_pnl(self) -> float:
         """Calculate daily PnL percentage. Returns 0.0 if no positions or no trades."""
@@ -110,25 +130,6 @@ class EvaluationScheduler:
         self._daily_pnl_timestamp = now
         
         return self._daily_pnl_cache
-
-        self.correlation = CorrelationEngine(
-            db=self.db,
-            pulse_base_url=os.getenv("PULSE_API_URL", "http://pulse:8001"),
-            window_sec=120,
-            min_symbols=3,
-            cooldown_sec=300,
-        )
-
-        # Phase 3: WebSocket integration
-        self.ws_manager = WebSocketManager(
-            self.price_fetcher,
-            self._on_ws_price_update,
-            get_active_symbols=lambda: set(self.active_tickers)
-        )
-        self.price_fetcher.set_ws_manager(self.ws_manager)
-        logger.info("WebSocketManager wired into scheduler")
-
-        logger.info("Scheduler initialised with %d tickers", len(self.active_tickers))
 
     # ─────────────────────────────────────────────────────────────────────────
     # Evaluation

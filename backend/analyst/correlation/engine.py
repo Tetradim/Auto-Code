@@ -44,13 +44,15 @@ class CorrelationEngine:
     def __init__(
         self,
         db=None,                                    # Motor async DB (optional)
-        pulse_base_url: str = "http://pulse:8001",
+        pulse_base_url: Optional[str] = "http://pulse:8001",
+        pulse_overrides_enabled: bool = True,
         window_sec: int = 120,
         min_symbols: int = 3,
         cooldown_sec: int = 300,
     ):
         self.db = db
         self.pulse_base_url = pulse_base_url
+        self.pulse_overrides_enabled = pulse_overrides_enabled
         self.window_sec = window_sec
         self.min_symbols = min_symbols
         self.cooldown_sec = cooldown_sec
@@ -198,6 +200,10 @@ class CorrelationEngine:
             logger.error("Cluster persist failed: %s", exc)
 
     async def _trigger_pulse_override(self, cluster: Dict) -> None:
+        if not self.pulse_overrides_enabled or not self.pulse_base_url:
+            logger.info("Pulse override suppressed: standalone/demo mode")
+            return
+
         payload = {
             "action": "tighten_trailing_global",
             "reason": "correlation_bearish_cluster",

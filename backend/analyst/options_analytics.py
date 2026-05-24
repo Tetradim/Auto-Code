@@ -242,7 +242,11 @@ class ProbabilityCone:
         sign = -1 if z < 0 else 1
         z = abs(z) / math.sqrt(2)
         t = 1.0 / (1.0 + p * z)
-        y = 1.0 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * math.exp(-z * z)
+        y = 1.0 - (
+            (((((a5 * t + a4) * t + a3) * t + a2) * t + a1)
+            * t
+            * math.exp(-z * z))
+        )
         
         return 0.5 * (1.0 + sign * y)
 

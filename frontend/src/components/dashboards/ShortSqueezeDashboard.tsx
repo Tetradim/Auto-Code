@@ -267,7 +267,7 @@ export const ShortSqueezeDashboard: React.FC<ShortSqueezeProps> = ({
           label="Days to Cover"
           value={data?.daysToCover?.toFixed(1) || '--'}
           subValue={data ? `${data.daysToCover > 5 ? 'HIGH RISK' : 'Normal'}` : undefined}
-          trend={data?.daysToCover && data.daysToCover > 5 ? 'up' : 'stable'}
+          trend={data && data.daysToCover > 5 ? 'up' : 'stable'}
         />
         <MetricCard 
           label="Short Interest"
@@ -278,13 +278,13 @@ export const ShortSqueezeDashboard: React.FC<ShortSqueezeProps> = ({
           label="Borrow Fee"
           value={data ? `${(data.borrowRate * 100).toFixed(1)}%` : '--'}
           subValue={data ? (data.borrowRate > 0.5 ? 'Expensive!' : 'Normal') : undefined}
-          alert={data?.borrowRate && data.borrowRate > 0.5}
+          alert={Boolean(data && data.borrowRate > 0.5)}
         />
         <MetricCard 
           label="Squeeze Score"
           value={data?.squeezeScore?.toFixed(0) || '--'}
           subValue="/ 100"
-          trend={data?.squeezeScore && data.squeezeScore > 50 ? 'up' : 'stable'}
+          trend={data && data.squeezeScore > 50 ? 'up' : 'stable'}
         />
       </div>
 
@@ -336,11 +336,11 @@ export const ShortSqueezeDashboard: React.FC<ShortSqueezeProps> = ({
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-400 vs. Current</div>
+              <div className="text-xs text-slate-400">vs. Current</div>
               <div className="text-xl" style={{ 
-                color: data?.costBasis && data.costBasis > data.costBasis ? '#ef4444' : '#22c55e'
+                color: '#64748b'
               }}>
-                {data?.costBasis ? `${((data.costBasis / data.costBasis - 1) * 100).toFixed(1)}%` : '--'}
+                --
               </div>
             </div>
           </div>

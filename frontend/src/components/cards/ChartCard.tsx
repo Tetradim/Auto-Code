@@ -10,12 +10,14 @@ interface ChartDataPoint {
 
 interface ChartCardProps {
   title: string;
-  data: ChartDataPoint[];
+  data?: ChartDataPoint[];
   type?: 'line' | 'area';
   color?: string;
   showTrend?: boolean;
   height?: number;
   className?: string;
+  icon?: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 function buildSvgPath(
@@ -47,12 +49,14 @@ function buildSvgPath(
 
 export const ChartCard: React.FC<ChartCardProps> = ({
   title,
-  data,
+  data = [],
   type = 'line',
   color = '#3b82f6',
   showTrend = true,
   height = 200,
   className = '',
+  icon,
+  children,
 }) => {
   const latestValue = data[data.length - 1]?.value ?? 0;
   const previousValue = data[data.length - 2]?.value ?? 0;
@@ -85,7 +89,10 @@ export const ChartCard: React.FC<ChartCardProps> = ({
       <div className="p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
+            {icon}
+            {title}
+          </h3>
           {showTrend && data.length >= 2 && (
             <div
               className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
@@ -102,7 +109,9 @@ export const ChartCard: React.FC<ChartCardProps> = ({
           )}
         </div>
 
-        {/* SVG Chart */}
+        {children ? (
+          children
+        ) : (
         <div style={{ height }} className="w-full overflow-hidden">
           {data.length < 2 ? (
             <div className="flex items-center justify-center h-full">
@@ -175,6 +184,7 @@ export const ChartCard: React.FC<ChartCardProps> = ({
             </svg>
           )}
         </div>
+        )}
       </div>
     </motion.div>
   );
