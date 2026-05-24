@@ -68,18 +68,10 @@ DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 if DEMO_MODE:
     logger.info("DEMO_MODE enabled: MongoDB disabled; using in-memory/self-sovereign state")
-    db = None
-    _mongo_client = None
 else:
-    try:
-        _mongo_client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=2000)
-        # Test connection
-        _mongo_client.server_info()
-        db = _mongo_client[os.environ.get("DB_NAME", "sentinel_edge")]
-        logger.info(f"MongoDB connected to {mongo_url}")
-    except Exception as e:
-        logger.error(f"MongoDB connection failed: {e}")
-        raise
+    logger.info("MongoDB configured for %s", mongo_url)
+db = None
+_mongo_client = None
 
 # Global singletons populated during lifespan
 scheduler: EvaluationScheduler = None
@@ -217,13 +209,24 @@ class BacktestReportRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Wire all components, start background tasks, then tear down cleanly."""
-    global scheduler, scheduler_task, edge
+    global scheduler, scheduler_task, edge, db, _mongo_client
     global state_persistence, idempotency_manager, audit_trail, drift_detector, config_hasher, audit_logger
 
     logger.info("🚀 Starting Sentinel Edge...")
     
     if DEMO_MODE:
         logger.info("🎯 DEMO MODE enabled - will run without MongoDB")
+        db = None
+        _mongo_client = None
+    else:
+        try:
+            _mongo_client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=2000)
+            await _mongo_client.admin.command("ping")
+            db = _mongo_client[os.environ.get("DB_NAME", "sentinel_edge")]
+            logger.info("MongoDB connected to %s", mongo_url)
+        except Exception as e:
+            logger.error("MongoDB connection failed: %s", e)
+            raise
 
     pulse_url = os.getenv("PULSE_API_URL", "http://localhost:8002")
 
