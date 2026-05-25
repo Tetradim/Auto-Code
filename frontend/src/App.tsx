@@ -1,14 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, TrendingUp, Shield, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical, BookOpen, AlertTriangle, Gauge, Server, Wifi, AlertCircle, Wallet, Settings } from 'lucide-react';
+import { Activity, TrendingUp, Globe, CheckCircle, XCircle, Pause, Play, FlaskConical, BookOpen, AlertTriangle, Gauge, Server, Wifi, AlertCircle, Wallet, Settings } from 'lucide-react';
 import { TradingOverview } from './components/dashboards/TradingOverview';
-import { BrokerHealth } from './components/dashboards/BrokerHealth';
 import { PnLTracking } from './components/dashboards/PnLTracking';
 import { MarketCoverage } from './components/dashboards/MarketCoverage';
-import { PaperTrading } from './components/dashboards/PaperTrading';
 import { PortfolioAnalytics } from './components/dashboards/PortfolioAnalytics';
 import { SettingsDashboard } from './components/dashboards/SettingsDashboard';
 import { TutorialsDashboard } from './components/tutorials';
-import { HealthDashboard } from './components/dashboards/TradingOverview';
+import { AdvisorHealth } from './components/dashboards/AdvisorHealth';
 import { useStore } from './store/useStore';
 import { api } from './lib/api';
 
@@ -16,11 +14,9 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 
 const TABS = [
   { id: 'overview', label: 'Trading Overview', icon: Activity },
-  { id: 'health', label: 'Service Health', icon: Gauge },
-  { id: 'broker', label: 'Broker Health', icon: Shield },
+  { id: 'health', label: 'Advisor Health', icon: Gauge },
   { id: 'pnl', label: 'P&L Tracking', icon: TrendingUp },
   { id: 'markets', label: 'Market Coverage', icon: Globe },
-  { id: 'paper', label: 'Paper Trading', icon: FlaskConical },
   { id: 'portfolio', label: 'Portfolio', icon: Wallet },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'tutorials', label: 'Tutorials', icon: BookOpen },
@@ -193,16 +189,6 @@ export default function App() {
     }
   };
 
-  const toggleKillSwitch = async () => {
-    try {
-      const newState = !killSwitchActive;
-      await api.toggleKillSwitch(newState);
-      setKillSwitchActive(newState);
-    } catch (err) {
-      console.error('Failed to toggle kill switch:', err);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       {/* ── Pulse Startup Modal ── */}
@@ -270,20 +256,19 @@ export default function App() {
               </button>
             )}
 
-            {/* Kill Switch */}
-            <button
-              data-testid="kill-switch-btn"
-              onClick={toggleKillSwitch}
-              title="Emergency kill switch - immediately halts all trading"
+            {/* Kill switch indicator - read-only in Edge UI */}
+            <div
+              data-testid="kill-switch-status"
+              title="Emergency kill switch status is read-only in Sentinel Edge"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
                 killSwitchActive
                   ? 'bg-red-500/80 text-white animate-pulse'
-                  : 'bg-gray-700/40 text-gray-500 hover:bg-red-500/20 hover:text-red-400'
+                  : 'bg-gray-700/40 text-gray-500'
               }`}
             >
               <AlertTriangle className="w-4 h-4" />
-              <span className="hidden sm:inline">{killSwitchActive ? 'KILL' : 'Kill'}</span>
-            </button>
+              <span className="hidden sm:inline">{killSwitchActive ? 'Kill Active' : 'Kill Clear'}</span>
+            </div>
 
             {/* Pulse indicator */}
             <div
@@ -353,11 +338,9 @@ export default function App() {
       {/* ── Page content ── */}
       <main className="max-w-screen-2xl mx-auto px-6 py-8" data-testid="main-content">
         {activeTab === 'overview' && <TradingOverview />}
-        {activeTab === 'health' && <HealthDashboard />}
-        {activeTab === 'broker' && <BrokerHealth />}
+        {activeTab === 'health' && <AdvisorHealth />}
         {activeTab === 'pnl' && <PnLTracking />}
         {activeTab === 'markets' && <MarketCoverage />}
-        {activeTab === 'paper' && <PaperTrading />}
         {activeTab === 'portfolio' && <PortfolioAnalytics />}
         {activeTab === 'settings' && <SettingsDashboard />}
         {activeTab === 'tutorials' && <TutorialsDashboard />}

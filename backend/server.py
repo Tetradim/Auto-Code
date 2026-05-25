@@ -994,6 +994,15 @@ async def toggle_kill_switch(state: bool):
     return {"status": f"kill switch set to {state}", "kill_switch_active": state}
 
 
+@api_router.get("/emergency/kill-switch")
+async def get_kill_switch_status():
+    """Return the global kill switch state without mutating it."""
+    return {
+        "kill_switch_active": os.getenv("GLOBAL_KILL_SWITCH", "false").lower() == "true",
+        "mode": "read_only_status",
+    }
+
+
 @api_router.post("/test/pulse-command")
 async def test_pulse_command(command: dict):
     """For testing: simulate Pulse sending a command to Edge via MongoDB.

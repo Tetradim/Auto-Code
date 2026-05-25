@@ -14,6 +14,18 @@ class ApiClient {
     return fetchJSON('/api/health');
   }
 
+  async getProviderHealth() {
+    return fetchJSON('/api/providers/health');
+  }
+
+  async getMarketDataProviders() {
+    return fetchJSON('/api/market-data/providers');
+  }
+
+  async getPulseStatus() {
+    return fetchJSON('/api/pulse/status');
+  }
+
   async getStats() {
     return fetchJSON('/api/stats');
   }
