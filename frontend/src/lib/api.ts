@@ -113,6 +113,24 @@ class ApiClient {
     return fetchJSON('/api/emergency/kill-switch');
   }
 
+  async getAutomationStatus() {
+    return fetchJSON('/api/automation');
+  }
+
+  async updateAutomationSettings(settings: any) {
+    return fetchJSON('/api/automation', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async updateTickerAutomation(symbol: string, enabled: boolean) {
+    return fetchJSON(`/api/automation/tickers/${symbol}`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
   async getCorrelation() {
     return fetchJSON('/api/correlation');
   }

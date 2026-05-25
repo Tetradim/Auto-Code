@@ -30,6 +30,7 @@ from pulse_client import PulseClient
 from scheduler import EvaluationScheduler
 from signals import SignalEngine
 from alert_handler import router as alert_handler_router, shutdown as alert_handler_shutdown
+from automation import AutomationMode
 
 # NEW: Resilience & persistence modules
 from state_persistence import StatePersistence, IdempotencyManager
@@ -161,6 +162,22 @@ class TickerConfigBody(BaseModel):
     """Request body for PUT /api/tickers/{symbol}/config."""
     metrics: MetricToggles = Field(default_factory=MetricToggles)
     risk: RiskConfig = Field(default_factory=RiskConfig)
+
+
+class AutomationSettingsBody(BaseModel):
+    """Global autonomous Edge -> Pulse handoff settings."""
+    global_enabled: Optional[bool] = None
+    mode: Optional[AutomationMode] = None
+    default_ticker_enabled: Optional[bool] = None
+    min_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    cooldown_seconds: Optional[int] = Field(None, ge=0, le=3600)
+    quiet_when_pulse_absent: Optional[bool] = None
+    per_ticker_enabled: Optional[Dict[str, bool]] = None
+
+
+class TickerAutomationBody(BaseModel):
+    """Per-ticker autonomous handoff toggle."""
+    enabled: bool
 
 
 class BacktestRequest(BaseModel):
@@ -594,6 +611,38 @@ async def get_providers_config():
         "supported_order": default_provider_order(),
         "secret_values": "redacted",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Autonomous Edge -> Pulse handoff controls
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@api_router.get("/automation")
+async def get_automation_status():
+    """Return global/per-ticker autonomous Pulse handoff settings and status."""
+    sched = _require_scheduler()
+    return sched.automation.status()
+
+
+@api_router.put("/automation")
+async def update_automation_settings(body: AutomationSettingsBody):
+    """Update autonomous Pulse handoff settings without erasing ticker overrides."""
+    sched = _require_scheduler()
+    patch = body.model_dump(exclude_unset=True)
+    if "mode" in patch and patch["mode"] is not None:
+        patch["mode"] = patch["mode"].value
+    settings = sched.automation.update_settings(patch)
+    return sched.automation.status() | {"settings": settings.public_dict()}
+
+
+@api_router.put("/automation/tickers/{symbol}")
+async def update_ticker_automation(symbol: str, body: TickerAutomationBody):
+    """Enable/disable autonomous Pulse handoff for one ticker."""
+    sched = _require_scheduler()
+    sym = _symbol(symbol)
+    sched.automation.set_ticker(sym, body.enabled)
+    return sched.automation.status()
 
 
 @api_router.get("/price/{symbol}")

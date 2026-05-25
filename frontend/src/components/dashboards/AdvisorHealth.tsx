@@ -40,6 +40,7 @@ interface HealthState {
   providerMeta: ProviderInfo[];
   fallbackOrder: string[];
   decisionsCount: number;
+  automation: any | null;
   refreshedAt: string | null;
 }
 
@@ -55,6 +56,7 @@ const emptyState: HealthState = {
   providerMeta: [],
   fallbackOrder: [],
   decisionsCount: 0,
+  automation: null,
   refreshedAt: null,
 };
 
@@ -83,7 +85,7 @@ export const AdvisorHealth: React.FC = () => {
 
   const load = async () => {
     try {
-      const [health, stats, pulse, killSwitch, providerHealth, providerCatalog, decisions] = await Promise.allSettled([
+      const [health, stats, pulse, killSwitch, providerHealth, providerCatalog, decisions, automation] = await Promise.allSettled([
         api.getHealth(),
         api.getStats(),
         api.getPulseStatus(),
@@ -91,9 +93,10 @@ export const AdvisorHealth: React.FC = () => {
         api.getProviderHealth(),
         api.getMarketDataProviders(),
         api.getDecisions(),
+        api.getAutomationStatus(),
       ]);
 
-      const next: HealthState = {
+      setState({
         connected: health.status === 'fulfilled',
         loading: false,
         error: null,
@@ -105,9 +108,9 @@ export const AdvisorHealth: React.FC = () => {
         providerMeta: providerCatalog.status === 'fulfilled' ? providerCatalog.value.providers || [] : [],
         fallbackOrder: providerCatalog.status === 'fulfilled' ? providerCatalog.value.fallback_order || [] : [],
         decisionsCount: decisions.status === 'fulfilled' ? decisions.value.count ?? decisions.value.decisions?.length ?? 0 : 0,
+        automation: automation.status === 'fulfilled' ? automation.value : null,
         refreshedAt: new Date().toLocaleTimeString(),
-      };
-      setState(next);
+      });
     } catch (err) {
       setState((prev) => ({
         ...prev,
@@ -140,6 +143,10 @@ export const AdvisorHealth: React.FC = () => {
   const running = Boolean(state.health?.running || state.stats?.running);
   const killSwitchActive = Boolean(state.killSwitch?.kill_switch_active);
   const retryQueueSize = state.stats?.retry_queue?.size ?? state.stats?.retry_queue?.pending ?? 0;
+  const automationSettings = state.automation?.settings || {};
+  const handoffEnabled = Boolean(automationSettings.global_enabled);
+  const lastHandoff = state.automation?.last_handoff;
+  const lastSuppressed = state.automation?.last_suppressed;
 
   return (
     <div className="space-y-6" data-testid="advisor-health">
@@ -148,7 +155,7 @@ export const AdvisorHealth: React.FC = () => {
           <div>
             <h2 className="text-xl font-bold text-white">Advisor Operations Health</h2>
             <p className="mt-1 text-sm text-gray-400">
-              Read-only operational status for Sentinel Edge. Edge generates recommendations; Pulse remains the execution boundary.
+              Operational status for Sentinel Edge automation, market-data readiness, and Pulse handoff.
             </p>
           </div>
           <div className="text-xs text-gray-500">
@@ -158,7 +165,7 @@ export const AdvisorHealth: React.FC = () => {
         {state.error && <p className="mt-3 text-sm text-red-300">{state.error}</p>}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
         <MetricCard
           title="Edge Service"
           value={state.connected ? (running ? 'Running' : 'Stopped') : 'Offline'}
@@ -172,6 +179,13 @@ export const AdvisorHealth: React.FC = () => {
           subtitle={`Circuit: ${state.pulse?.circuit_state || state.stats?.pulse_circuit_state || 'unknown'}`}
           icon={pulseConnected ? Radio : WifiOff}
           color={pulseConnected ? 'green' : 'yellow'}
+        />
+        <MetricCard
+          title="Pulse Handoff"
+          value={handoffEnabled ? automationSettings.mode || 'Enabled' : 'Off'}
+          subtitle={handoffEnabled ? 'Autonomous commands allowed' : 'Recommendations only'}
+          icon={Shield}
+          color={handoffEnabled ? (automationSettings.mode === 'live' ? 'red' : 'yellow') : 'blue'}
         />
         <MetricCard
           title="Kill Switch"
@@ -256,6 +270,10 @@ export const AdvisorHealth: React.FC = () => {
               <dd className="font-medium text-white">{retryQueueSize}</dd>
             </div>
             <div className="flex justify-between gap-3 border-b border-gray-800 pb-3">
+              <dt className="text-gray-500">Automation cooldown</dt>
+              <dd className="font-medium text-white">{automationSettings.cooldown_seconds ?? 0}s</dd>
+            </div>
+            <div className="flex justify-between gap-3 border-b border-gray-800 pb-3">
               <dt className="text-gray-500">ORB levels</dt>
               <dd className="font-medium text-white">{state.stats?.orb_levels_count ?? 0}</dd>
             </div>
@@ -265,6 +283,17 @@ export const AdvisorHealth: React.FC = () => {
             </div>
           </dl>
 
+          {(lastHandoff || lastSuppressed) && (
+            <div className="mt-5 rounded-lg border border-gray-700 bg-gray-950/50 p-3 text-xs text-gray-400">
+              <div className="mb-1 font-medium text-white">Latest automation event</div>
+              {lastHandoff ? (
+                <p>{lastHandoff.symbol} {lastHandoff.action} · sent={String(lastHandoff.sent)} · {lastHandoff.reason}</p>
+              ) : (
+                <p>{lastSuppressed.symbol} {lastSuppressed.action} · suppressed={lastSuppressed.suppressed_reason}</p>
+              )}
+            </div>
+          )}
+
           {(paused || killSwitchActive || !pulseConnected) && (
             <div className="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
               <div className="mb-1 flex items-center gap-2 font-medium">
@@ -273,10 +302,10 @@ export const AdvisorHealth: React.FC = () => {
               </div>
               <p className="text-amber-200/80">
                 {killSwitchActive
-                  ? 'Kill switch is active. Edge should remain advisory-only until cleared by an operator.'
+                  ? 'Kill switch is active. Autonomous handoff should not place new commands.'
                   : paused
                     ? 'Scheduler is paused. Recommendations may be stale.'
-                    : 'Pulse is not connected. Edge is operating standalone and will not hand off actions.'}
+                    : 'Pulse is not connected. Edge is operating standalone; handoff attempts are suppressed/backed off.'}
               </p>
             </div>
           )}

@@ -1,6 +1,7 @@
 """Sentinel Pulse API Client — circuit-breaker HTTP client."""
 
 import logging
+import os
 import time
 from enum import Enum
 from typing import Any, Dict, Optional
@@ -230,6 +231,42 @@ class PulseClient:
         if not sent and not self.pulse_available:
             logger.info("STANDALONE: would have sent %s → %s", decision, symbol)
         return sent
+
+    async def send_handoff_command(self, payload: Dict[str, Any]) -> bool:
+        """Send a structured autonomous handoff command to Pulse.
+
+        Pulse may implement the richer `/api/edge/handoff` contract later. Until
+        then, fall back to the existing per-ticker decision endpoint while
+        preserving idempotency/reason metadata in the payload.
+        """
+        symbol = str(payload.get("symbol", "")).upper()
+        action = str(payload.get("action", "hold"))
+        if not symbol:
+            logger.warning("Pulse handoff suppressed: missing symbol")
+            return False
+
+        if not self.pulse_available or self.state == CircuitState.OPEN:
+            logger.debug("Pulse handoff suppressed: Pulse unavailable/circuit open")
+            return False
+
+        handoff_endpoint = os.getenv("PULSE_HANDOFF_ENDPOINT")
+        if handoff_endpoint:
+            sent = await self._post(handoff_endpoint, payload)
+            if sent:
+                return True
+
+        legacy_payload = {
+            "reason": payload.get("reason", ""),
+            "confidence": payload.get("confidence", 0.0),
+            "idempotency_key": payload.get("idempotency_key"),
+            "source": payload.get("source", "sentinel_edge"),
+            "mode": payload.get("mode"),
+            "orb_session": payload.get("orb_session"),
+            "stop_type": payload.get("stop_type"),
+            "trailing_percent": payload.get("trailing_percent"),
+            "metadata": payload.get("metadata", {}),
+        }
+        return await self.send_decision(symbol, action, **legacy_payload)
 
     async def send_signal(
         self,

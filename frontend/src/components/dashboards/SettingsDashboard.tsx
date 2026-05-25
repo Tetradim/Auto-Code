@@ -32,6 +32,16 @@ interface ProviderInfo {
   notes: string;
 }
 
+interface AutomationSettings {
+  global_enabled: boolean;
+  mode: 'recommend_only' | 'paper' | 'live';
+  default_ticker_enabled: boolean;
+  per_ticker_enabled: Record<string, boolean>;
+  min_confidence: number;
+  cooldown_seconds: number;
+  quiet_when_pulse_absent: boolean;
+}
+
 const MARKET_DATA_OPTIONS = [
   'yfinance',
   'finnhub',
@@ -121,6 +131,8 @@ export function SettingsDashboard() {
   const [saved, setSaved] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providerOrder, setProviderOrder] = useState<string[]>([]);
+  const [automation, setAutomation] = useState<AutomationSettings | null>(null);
+  const [tickers, setTickers] = useState<string[]>([]);
 
   // Load saved config from localStorage
   useEffect(() => {
@@ -155,20 +167,34 @@ export function SettingsDashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    const loadProviders = async () => {
+    const loadRuntimeSettings = async () => {
       try {
-        const response = await fetch('/api/market-data/providers');
-        if (!response.ok) return;
-        const data = await response.json();
+        const [providerResponse, automationResponse, tickersResponse] = await Promise.allSettled([
+          fetch('/api/market-data/providers'),
+          fetch('/api/automation'),
+          fetch('/api/tickers'),
+        ]);
         if (cancelled) return;
-        setProviders(data.providers || []);
-        setProviderOrder(data.fallback_order || []);
+
+        if (providerResponse.status === 'fulfilled' && providerResponse.value.ok) {
+          const data = await providerResponse.value.json();
+          setProviders(data.providers || []);
+          setProviderOrder(data.fallback_order || []);
+        }
+        if (automationResponse.status === 'fulfilled' && automationResponse.value.ok) {
+          const data = await automationResponse.value.json();
+          setAutomation(data.settings || null);
+        }
+        if (tickersResponse.status === 'fulfilled' && tickersResponse.value.ok) {
+          const data = await tickersResponse.value.json();
+          setTickers((data.tickers || []).map((ticker: any) => ticker.symbol).filter(Boolean));
+        }
       } catch (e) {
-        // Provider metadata is informational only; keep Settings usable offline.
+        // Runtime metadata is informational only; keep Settings usable offline.
       }
     };
-    loadProviders();
-    const id = window.setInterval(loadProviders, 30000);
+    loadRuntimeSettings();
+    const id = window.setInterval(loadRuntimeSettings, 30000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
@@ -186,6 +212,34 @@ export function SettingsDashboard() {
       };
     }));
     setSaved(false);
+  };
+
+  const saveAutomation = async (patch: Partial<AutomationSettings>) => {
+    const next = { ...(automation || {} as AutomationSettings), ...patch } as AutomationSettings;
+    setAutomation(next);
+    const response = await fetch('/api/automation', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      setAutomation(data.settings || next);
+    }
+  };
+
+  const saveTickerAutomation = async (symbol: string, enabled: boolean) => {
+    const perTicker = { ...(automation?.per_ticker_enabled || {}), [symbol]: enabled };
+    setAutomation((prev) => prev ? { ...prev, per_ticker_enabled: perTicker } : prev);
+    const response = await fetch(`/api/automation/tickers/${symbol}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      setAutomation(data.settings || null);
+    }
   };
 
   const handleSave = async () => {
@@ -277,6 +331,104 @@ export function SettingsDashboard() {
           <p className="font-medium">Settings are stored locally</p>
           <p className="text-blue-400/70">Your non-secret configuration is saved to your browser and persists across sessions. API keys are not saved here; configure them as backend environment variables.</p>
         </div>
+      </div>
+
+      {/* Autonomous Pulse Handoff */}
+      <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Shield className="w-5 h-5 text-red-400" />
+          Autonomous Pulse Handoff
+        </h3>
+        <p className="text-sm text-gray-400 mb-4">
+          Edge can recommend continuously, but Pulse commands are sent only when the global switch and each ticker switch allow it. Turning global handoff off preserves ticker choices.
+        </p>
+
+        {!automation ? (
+          <div className="text-sm text-gray-500">Automation settings unavailable until the backend is running.</div>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4">
+                <div className="text-sm font-medium text-gray-300">Global handoff</div>
+                <button
+                  onClick={() => saveAutomation({ global_enabled: !automation.global_enabled })}
+                  className={`mt-3 w-full rounded-lg px-3 py-2 text-sm font-medium transition-colors ${automation.global_enabled ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                >
+                  {automation.global_enabled ? 'Enabled' : 'Disabled'}
+                </button>
+              </div>
+
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4">
+                <label className="text-sm font-medium text-gray-300">Mode</label>
+                <select
+                  value={automation.mode}
+                  onChange={(event) => saveAutomation({ mode: event.target.value as AutomationSettings['mode'] })}
+                  className="mt-3 w-full rounded-lg border border-gray-600 bg-gray-950 px-3 py-2 text-sm text-white"
+                >
+                  <option value="recommend_only">Recommend only</option>
+                  <option value="paper">Paper</option>
+                  <option value="live">Live</option>
+                </select>
+              </div>
+
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4">
+                <label className="text-sm font-medium text-gray-300">Minimum confidence</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={automation.min_confidence}
+                  onChange={(event) => saveAutomation({ min_confidence: parseFloat(event.target.value) || 0 })}
+                  className="mt-3 w-full rounded-lg border border-gray-600 bg-gray-950 px-3 py-2 text-sm text-white"
+                />
+              </div>
+
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4">
+                <label className="text-sm font-medium text-gray-300">Cooldown seconds</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="3600"
+                  value={automation.cooldown_seconds}
+                  onChange={(event) => saveAutomation({ cooldown_seconds: parseInt(event.target.value, 10) || 0 })}
+                  className="mt-3 w-full rounded-lg border border-gray-600 bg-gray-950 px-3 py-2 text-sm text-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-white">Ticker handoff switches</h4>
+                  <p className="text-xs text-gray-500">Per-ticker preferences are preserved even when global handoff is disabled.</p>
+                </div>
+                <button
+                  onClick={() => saveAutomation({ default_ticker_enabled: !automation.default_ticker_enabled })}
+                  className={`rounded-lg px-3 py-2 text-xs font-medium ${automation.default_ticker_enabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-700 text-gray-400'}`}
+                >
+                  Default: {automation.default_ticker_enabled ? 'On' : 'Off'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {tickers.length === 0 && <div className="text-sm text-gray-500">No active tickers loaded yet.</div>}
+                {tickers.map((symbol) => {
+                  const enabled = automation.per_ticker_enabled?.[symbol] ?? automation.default_ticker_enabled;
+                  return (
+                    <button
+                      key={symbol}
+                      onClick={() => saveTickerAutomation(symbol, !enabled)}
+                      className={`rounded-lg border px-4 py-3 text-left transition-colors ${enabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-gray-700 bg-gray-900/50 text-gray-400 hover:bg-gray-800'}`}
+                    >
+                      <div className="font-medium">{symbol}</div>
+                      <div className="mt-1 text-xs">{enabled ? 'Handoff allowed when global is on' : 'Recommendations only'}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Market Data Providers */}

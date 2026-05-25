@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from atr import ATRCalculator
+from automation import AutomationAction, AutomationController, HandoffCommand
 from correlation import CorrelationEngine
 from engine import DecisionEngine, Decision
 from market_hours import MarketHours
@@ -82,6 +83,7 @@ class EvaluationScheduler:
         self.ticker_state:   Dict[str, Dict]  = {}
         self.recent_decisions: list           = []
         self.signal_plugins:   list           = []
+        self.automation = AutomationController()
 
         # Dual-mode position tracker (change stream primary, self-sovereign fallback)
         self.position_tracker = PositionTracker(
@@ -329,34 +331,76 @@ class EvaluationScheduler:
             if base_signal != signal_strength:
                 logger.info(f"📊 {symbol}: Observation adjustment applied ({base_signal:.2f} -> {signal_strength:.2f})")
 
-            # ── 8. Send decision to Pulse ────────────────────────────────────
+            # ── 8. Send decision to Pulse when autonomous handoff allows it ───
+            confidence = min(abs(signal_strength) / 10.0, 1.0)
             if decision == Decision.BUY:
-                logger.info("🚀 %s: BUY signal → Pulse", symbol)
-                await self.pulse.send_decision(symbol, "buy")
+                await self._handoff_to_pulse(
+                    symbol=symbol,
+                    action=AutomationAction.BUY,
+                    confidence=confidence,
+                    reason="Bullish ORB/signal confluence",
+                    orb_session="market_open",
+                    metadata={"signal_strength": signal_strength, "trend": trend.name.lower()},
+                )
 
             elif decision == Decision.STOP_BUYING:
-                logger.warning("⛔ %s: STOP_BUYING → Pulse", symbol)
-                await self.pulse.stop_buying(symbol)
+                await self._handoff_to_pulse(
+                    symbol=symbol,
+                    action=AutomationAction.STOP_BUYING,
+                    confidence=confidence,
+                    reason="Bearish ORB/signal risk",
+                    orb_session="market_open",
+                    metadata={"signal_strength": signal_strength, "trend": trend.name.lower()},
+                )
 
             elif decision == Decision.ENABLE_TRAILING_STOP:
                 trailing_pct = (
                     min(2.0, max(0.5, (atr / price) * 100 * 2))
                     if price > 0 else 1.5
                 )
-                logger.info("🎯 %s: ENABLE trailing stop %.2f%% → Pulse", symbol, trailing_pct)
-                await self.pulse.enable_trailing_stop(symbol, trailing_pct)
+                await self._handoff_to_pulse(
+                    symbol=symbol,
+                    action=AutomationAction.TRAILING_STOP,
+                    confidence=confidence,
+                    reason="Position in profit; enable trailing stop",
+                    orb_session="market_open",
+                    stop_type="trailing",
+                    trailing_percent=trailing_pct,
+                    metadata={"atr": atr, "price": price, "pnl_pct": pnl_pct},
+                )
 
             elif decision == Decision.TIGHTEN_TRAILING_STOP:
-                logger.info("🎯 %s: TIGHTEN trailing stop → 0.5%% → Pulse", symbol)
-                await self.pulse.enable_trailing_stop(symbol, 0.5)
+                await self._handoff_to_pulse(
+                    symbol=symbol,
+                    action=AutomationAction.TIGHTEN_TRAILING_STOP,
+                    confidence=confidence,
+                    reason="Strong move while trailing; tighten trailing stop",
+                    orb_session="market_open",
+                    stop_type="trailing",
+                    trailing_percent=0.5,
+                    metadata={"signal_strength": signal_strength, "pnl_pct": pnl_pct},
+                )
 
             elif decision == Decision.TIGHTEN_STOP:
-                logger.warning("⚠️ %s: TIGHTEN_STOP → Pulse", symbol)
-                await self.pulse.send_decision(symbol, "tighten_stop")
+                await self._handoff_to_pulse(
+                    symbol=symbol,
+                    action=AutomationAction.TIGHTEN_STOP,
+                    confidence=confidence,
+                    reason="Bearish reversal detected; tighten stop",
+                    orb_session="market_open",
+                    stop_type="regular",
+                    metadata={"signal_strength": signal_strength, "trend": trend.name.lower()},
+                )
 
             elif decision == Decision.EMERGENCY_EXIT:
-                logger.error("🚨 %s: EMERGENCY EXIT → Pulse", symbol)
-                await self.pulse.emergency_stop(symbol)
+                await self._handoff_to_pulse(
+                    symbol=symbol,
+                    action=AutomationAction.EMERGENCY_EXIT,
+                    confidence=max(confidence, 0.95),
+                    reason="Emergency risk threshold reached",
+                    orb_session="market_open",
+                    metadata={"drawdown_pct": pos["drawdown_pct"], "pnl_pct": pnl_pct},
+                )
 
             # ── 9a. Notify PositionTracker of decision taken ─────────────────
             # Keeps optimistic state coherent while waiting for change stream
@@ -364,7 +408,6 @@ class EvaluationScheduler:
             self.position_tracker.on_decision(symbol, decision, entry_price=price)
 
             # ── 9. Correlation tracking ──────────────────────────────────────
-            confidence = min(abs(signal_strength) / 10.0, 1.0)
             if decision == Decision.BUY:
                 await self.correlation.record_signal(symbol, "BUY", confidence)
             elif decision in (Decision.STOP_BUYING, Decision.EMERGENCY_EXIT):
@@ -482,6 +525,47 @@ class EvaluationScheduler:
             current_price=price,
             current_volume=volume
         )
+
+    async def _handoff_to_pulse(
+        self,
+        symbol: str,
+        action: AutomationAction,
+        confidence: float,
+        reason: str,
+        orb_session: str = "market_open",
+        stop_type: Optional[str] = None,
+        trailing_percent: Optional[float] = None,
+        dca: Optional[Dict] = None,
+        metadata: Optional[Dict] = None,
+    ) -> bool:
+        """Gate and send an autonomous Edge -> Pulse handoff command."""
+        command = HandoffCommand(
+            symbol=symbol,
+            action=action,
+            confidence=confidence,
+            reason=reason,
+            mode=self.automation.settings.mode,
+            orb_session=orb_session,
+            stop_type=stop_type,
+            trailing_percent=trailing_percent,
+            dca=dca,
+            metadata=metadata or {},
+        )
+        allowed, gate_reason = self.automation.plan(command)
+        if not allowed:
+            logger.debug(
+                "Pulse handoff suppressed for %s %s: %s",
+                symbol,
+                action.value,
+                gate_reason,
+            )
+            return False
+
+        sent = await self.pulse.send_handoff_command(command.payload())
+        self.automation.record_sent(command, sent)
+        if sent:
+            logger.info("Pulse handoff sent: %s %s conf=%.2f", symbol, action.value, confidence)
+        return sent
 
     async def evaluate_all(self):
         """Evaluate all active tickers concurrently."""
