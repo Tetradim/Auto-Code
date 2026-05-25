@@ -1,875 +1,645 @@
-# Sentinel Edge — Production Trading System
+# Sentinel Edge — Autonomous Market Analysis Brain
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11+-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/React-18+-blue?logo=react" alt="React">
   <img src="https://img.shields.io/badge/FastAPI-0.115-blue?logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/TypeScript-5-blue?logo=typescript" alt="TypeScript">
-  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Windows-Executable-green?logo=windows" alt="Windows">
+  <img src="https://img.shields.io/badge/Windows-Local%20Beta-green?logo=windows" alt="Windows Local Beta">
+  <img src="https://img.shields.io/badge/Safety-Gated%20Automation-red" alt="Safety gated automation">
 </p>
 
-**Sentinel Edge** is a comprehensive, production-grade algorithmic trading system with real-time market data ingestion, multi-provider price feeds, backtesting engines, Monte Carlo risk simulation, strategy optimization, and automated decision-making capabilities.
+**Sentinel Edge** is the analysis and decision “brain” for the Tetradim trading suite. It monitors market data, calculates ORB/ATR/signal/risk state, produces recommendations, and—only when explicitly enabled—hands structured action instructions to **Sentinel Pulse**, the execution worker.
 
-This repository implements a complete trading pipeline from market data → signal generation → risk management → order execution with extensive safeguards, observability, and a modern React control interface.
+The current implementation is focused on **Windows-local beta testing** with safe standalone behavior. Edge can run without Pulse, without MongoDB in demo/standalone mode, and without paid market-data keys. When Pulse is present and automation is enabled, Edge can hand off buy/stop/trailing-stop style commands through a gated control layer.
 
----
-
-## Installation
-
-### Option 1: Windows Installer (Recommended)
-Download the latest installer from GitHub Actions:
-1. Go to [GitHub Actions](https://github.com/Tetradim/sentinel-edge/actions)
-2. Run the "Build Installer" workflow
-3. Download `SentinelEdge-Setup.exe` from Artifacts
-4. Run the installer — creates desktop shortcut and auto-starts bundled MongoDB
-
-### Option 2: Docker
-```bash
-git clone https://github.com/Tetradim/sentinel-edge
-cd sentinel-edge
-docker compose up -d
-
-# Services
-open http://localhost:3001   # Grafana
-open http://localhost:9090   # Prometheus
-open http://localhost:3200   # Tempo UI
-```
+> **Safety stance:** Edge is not a brokerage adapter. It does not place broker orders directly. Pulse owns execution. Live autonomous handoff is disabled unless the operator explicitly enables the global handoff switch and the relevant per-ticker switches.
 
 ---
 
-## Architecture
+## Current Implementation Status
 
-Sentinel Edge can run in two modes:
+### Recently implemented on `OC-Iteration`
 
-### Standalone Desktop App (Windows)
-- Bundled SQLite database for state persistence
-- Bundled MongoDB for data storage
-- Bundled VC++ runtime
-- Desktop shortcut and start menu entries
-- Self-contained installer via Inno Setup
+| Area | Status | Notes |
+|------|--------|-------|
+| Local startup UX | Implemented | Running `backend/server.py` directly can open the local UI after `/api/health` becomes ready. Controlled by `SENTINEL_EDGE_OPEN_BROWSER`, `SENTINEL_EDGE_HOST`, `SENTINEL_EDGE_PORT`, and `SENTINEL_EDGE_UI_URL`. |
+| Standalone/demo quiet mode | Implemented | `DEMO_MODE=true` skips MongoDB client creation and skips Pulse health probing unless explicitly enabled. Correlation Pulse overrides are suppressed in demo/standalone mode. |
+| Safe market-data provider catalog | Implemented | Read-only provider metadata endpoint exposes capabilities and configured/not-configured booleans only, never secret values. |
+| Provider fallback gating | Implemented | Runtime uses keyless/configured providers only. Keyed providers activate only when backend env vars are present. |
+| Stooq EOD/backfill only | Implemented | Stooq is retained for daily/EOD CSV use only and is excluded from intraday scheduler fallback. |
+| Frontend secret hygiene | Implemented | Settings no longer stores API keys; old localStorage secret-like fields are filtered out. Frontend uses native `fetch`, not Axios. |
+| Advisor Health dashboard | Implemented | Replaced duplicate/static Service Health with a read-only operational dashboard for Edge, Pulse, providers, kill-switch status, and automation status. |
+| Autonomous Pulse handoff foundation | Implemented | Global and per-ticker handoff gates, action mode, command schema, cooldown, idempotency key, status API, and UI controls. |
+| Generated artifact cleanup | Implemented | `.gitignore` now excludes Python bytecode/generated artifacts and local automation state. |
 
-### Docker Container
-- Uses MongoDB for state persistence
-- Requires external services (Prometheus, Grafana, Tempo)
+Recent commits:
 
-### Communication Methods
-
-| Method | Purpose |
-|--------|---------|
-| REST API | Primary communication with Pulse |
-| SQLite | State persistence (stand-alone) |
-| MongoDB | State persistence (Docker) |
-| Prometheus | Metrics at `/metrics` |
-
-Sentinel Edge works in tandem with **Sentinel Pulse**, the execution worker that handles brokerage data streams and order execution.
-
-### Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          SENTINEL PULSE ↔ EDGE INTEGRATION                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│   ┌─────────────┐                           ┌─────────────────────────┐     │
-│   │   PULSE     │                           │        EDGE             │     │
-│   │ (Executor)  │                           │   (Brain / Analyzer)    │     │
-│   └──────┬──────┘                           └───────────┬─────────────┘     │
-│          │                                            │                    │
-│          │  ORDER_FILLED (MongoDB)                     │                    │
-│          │  POSITION_UPDATE ──────────────────────────►│                    │
-│          │  ACCOUNT_UPDATE ──────────────────────────►│                    │
-│          │                                            │                    │
-│          │                                            │  BUY/SELL/STOP     │
-│          │◄───────────────────────────────────────────┤  (REST API)         │
-│          │         SIGNAL + DECISION                  │                    │
-│          │                                            │                    │
-│   ┌──────▼──────┐                           ┌──────────▼─────────────┐     │
-│   │  Brokerage  │                           │  Market Data Providers │     │
-│   │  (Orders)   │                           │  (Polygon, Finnhub)    │     │
-│   └─────────────┘                           └─────────────────────────┘     │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+```text
+ce227db Add autonomous Pulse handoff controls
+c3d8aa6 Add read-only advisor health dashboard
+a75d220 Gate market data providers by env configuration
+d477ed9 Add safe market data provider fallback
+20f0edd Open Sentinel Edge UI on local startup
 ```
 
-### Communication Methods
+---
 
-| Direction | Method | Purpose |
-|-----------|--------|---------|
-| Edge → Pulse | REST API (`/api/tickers/{symbol}/decision`) | Send buy/sell/stop decisions |
-| Edge → Pulse | REST API (`/control/override`) | Emergency stops, trailing stop management |
-| Pulse → Edge | MongoDB Change Stream (`commands` collection) | Order fills, position updates, account state |
-| (Optional) | WebSocket (`/ws/analyst`) | Real-time event streaming |
+## Product Model
 
-### Command Types (Shared Schema)
+The trading suite is split by responsibility:
 
-The `backend/shared/commands.py` module defines the contract for all Pulse ↔ Edge communication using Pydantic models:
+| System | Role | Owns |
+|--------|------|------|
+| **Sentinel Edge** | Brain / market analyst | Market data ingestion, ORB/ATR/signal analysis, risk reasoning, recommendations, automation gating, Pulse handoff instructions. |
+| **Sentinel Pulse** | Worker bee / executor | Broker adapters, order placement, execution state, position/account truth, dashboard execution controls. |
+| **Darkpool-Mon** | Flow/intelligence source | Darkpool, whale prints, scanner, options-flow/volume-anomaly intelligence. |
+| **Consolidation** | Options alert parser/executor | Discord options alert parsing, validation, and broker order execution. |
 
-#### Pulse → Edge Commands (Feedback Loop)
+Edge and Pulse should be useful independently:
 
-| Command | Description | Fields |
-|---------|-------------|--------|
-| `ORDER_FILLED` | Reports when an order is executed | `symbol`, `order_id`, `fill_price`, `quantity`, `side`, `pnl_realized`, `fees` |
-| `POSITION_UPDATE` | Real-time position & PnL sync | `symbol`, `position_size`, `entry_price`, `current_pnl_pct`, `current_pnl_dollar`, `market_value` |
-| `ACCOUNT_UPDATE` | Account-level updates | `symbol`, `buying_power`, `total_equity`, `day_pnl_pct`, `day_pnl_dollar` |
-| `ORDER_REJECTED` | Order rejection handling | `symbol`, `order_id`, `reason` |
-| `ORDER_CANCELLED` | Order cancellation tracking | `symbol`, `order_id`, `reason` |
+- Edge without Pulse: analyze, recommend, backtest/simulate, show health, stay quiet about missing Pulse.
+- Pulse without Edge: execute via its own controls and broker adapters.
+- Edge + Pulse: Edge can become the autonomous analysis layer that sends instructions to Pulse, but only through explicit operator-gated automation.
 
-#### Edge → Pulse Commands
+---
 
-| Command | Description | Fields |
-|---------|-------------|--------|
-| `SIGNAL_UPDATE` | Trading signal with action | `symbol`, `signal_score`, `action`, `confidence`, `reason` |
-| `CORRELATION_ALERT` | Market breadth warnings | `symbol`, `correlated_symbols`, `cluster_strength`, `recommended_action` |
-| `EMERGENCY_EXIT` | Immediate position closure | `symbol`, `reason` |
+## Architecture Overview
 
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `backend/shared/commands.py` | Pydantic models for all command types with `command_from_dict()` helper |
-| `backend/shared/commands_utils.py` | Command builders, serializers, and validation utilities |
-| `backend/pulse_client.py` | Edge's HTTP client with circuit breaker pattern + retry queue |
-| `backend/analyst/core.py` | SentinelEdge orchestrator with Change Stream listener |
-| `backend/engine.py` | DecisionEngine with async methods for Pulse feedback |
-| `backend/scheduler.py` | Evaluation loop using real position data from DecisionEngine |
-| `backend/services/pulse_service.py` | High-level service abstraction for Edge ↔ Pulse communication |
-| `backend/services/pulse_types.ts` | TypeScript types mirroring Python command models |
-| `backend/shared/observations.py` | Pydantic models for real-time observations with scoring |
-
-### Observation Feedback Loop
-
-The observation system provides real-time feedback that weights into signal scoring:
-
-**Schema Validation:**
-All observations are validated via Pydantic models before processing:
-- `PatternObservation` - Pattern detections (ORB, momentum, etc.)
-- `ExecutionObservation` - Order fills, rejections, position updates
-- `RiskObservation` - Risk limit triggers, correlation alerts
-- `HealthObservation` - System health status
-
-**Scoring Weights:**
-```python
-# Source weights
-pulse_weight: 1.0      # Trust Pulse execution observations
-edge_weight: 1.0       # Trust Edge pattern observations
-external_weight: 0.5   # External needs more validation
-
-# Confidence multipliers
-high_confidence_multiplier: 1.25  # >0.8 confidence gets bonus
-min_confidence_threshold: 0.3
-
-# Timeframe alignment
-timeframe_match_bonus: 0.2    # Observation timeframe matches eval
-max_timeframe_diff_seconds: 60  # Max allowed desync
+```text
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              Sentinel Edge                                 │
+│                                                                            │
+│  React UI                                                                  │
+│  ├─ Trading / Market / Settings dashboards                                 │
+│  ├─ Advisor Health                                                         │
+│  └─ Autonomous Pulse Handoff controls                                      │
+│                         │                                                  │
+│                         ▼                                                  │
+│  FastAPI backend (`backend/server.py`)                                      │
+│  ├─ Health / stats / provider APIs                                         │
+│  ├─ Ticker configuration APIs                                              │
+│  ├─ Automation APIs                                                        │
+│  └─ Pulse integration APIs                                                 │
+│                         │                                                  │
+│                         ▼                                                  │
+│  Evaluation Scheduler (`backend/scheduler.py`)                             │
+│  ├─ Fetch price data                                                       │
+│  ├─ Calculate ORB/ATR/signals/correlation                                  │
+│  ├─ Query real/local position state                                        │
+│  ├─ DecisionEngine decides BUY / STOP / TRAIL / EXIT                       │
+│  └─ AutomationController gates any Pulse handoff                           │
+│                         │                                                  │
+│              ┌──────────┴──────────┐                                       │
+│              ▼                     ▼                                       │
+│  Market-data providers       PulseClient                                   │
+│  ├─ yfinance/keyless          ├─ circuit breaker                           │
+│  ├─ Finnhub env-gated         ├─ quiet standalone suppression              │
+│  ├─ Polygon env-gated         ├─ retry queue for legacy decisions          │
+│  ├─ Alpha Vantage env-gated   └─ structured handoff payloads               │
+│  ├─ Twelve Data env-gated                                                   │
+│  └─ Stooq EOD/backfill only                                                 │
+│                                      │                                      │
+│                                      ▼                                      │
+│                           Sentinel Pulse                                    │
+│                           Broker/order executor                             │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Desync Handling:**
-- `ObservationDesyncMonitor` tracks drift between observation time and eval time
-- If drift > 60s: warning logged
-- If drift > 120s: severity = HIGH
-- Old observations (5+ min) are excluded from scoring
+---
 
-**Usage in DecisionEngine:**
-```python
-# Add observation from Pulse feedback
-decision_engine.add_observation(execution_observation)
+## Autonomous Pulse Handoff Foundation
 
-# Get impact for scoring
-impact = decision_engine.get_observation_impact("NVDA")
+The automation layer is intentionally separate from signal generation. Edge may evaluate opportunities continuously, but Pulse commands are sent only when every gate passes.
 
-# Apply to signal strength
-adjusted_signal = decision_engine.apply_observation_adjustment(
-    base_signal, "NVDA"
-)
+### Backend module
+
+`backend/automation.py` defines:
+
+- `AutomationMode`
+  - `recommend_only` — record recommendations/status only; no Pulse commands.
+  - `paper` — allow handoff in paper/simulated mode semantics.
+  - `live` — allow live handoff semantics after explicit enablement.
+- `AutomationAction`
+  - `buy`
+  - `stop_buying`
+  - `stop_all`
+  - `regular_stop`
+  - `trailing_stop`
+  - `tighten_stop`
+  - `tighten_trailing_stop`
+  - `dca`
+  - `emergency_exit`
+- `AutomationSettings`
+  - `global_enabled`
+  - `mode`
+  - `default_ticker_enabled`
+  - `per_ticker_enabled`
+  - `min_confidence`
+  - `cooldown_seconds`
+  - `quiet_when_pulse_absent`
+- `HandoffCommand`
+  - symbol/action/confidence/reason/mode
+  - ORB session tag
+  - stop/trailing/DCA recommendation fields
+  - idempotency key
+  - metadata payload
+- `AutomationController`
+  - loads/saves local settings
+  - preserves per-ticker settings when global handoff is disabled
+  - enforces global/ticker/mode/confidence/cooldown gates
+  - exposes `last_handoff` and `last_suppressed` status
+
+### Safety gates
+
+A Pulse handoff is blocked if:
+
+1. `global_enabled` is false.
+2. mode is `recommend_only`.
+3. the ticker is disabled.
+4. confidence is below `min_confidence`.
+5. the ticker/action is still inside cooldown.
+6. Pulse is unavailable or its circuit breaker is open.
+
+Global handoff is intentionally independent from per-ticker preferences. Turning global off does **not** erase ticker choices.
+
+### Local persistence
+
+Automation settings are persisted locally to:
+
+```text
+data/automation_settings.json
 ```
 
-The `PulseService` in `backend/services/pulse_service.py` provides a high-level abstraction:
+Override path:
 
-```python
-from services.pulse_service import PulseService, get_pulse_service
-
-# Send a buy signal
-await pulse_service.send_buy_signal(
-    symbol="NVDA",
-    signal_score=8.5,
-    confidence=0.8,
-    reason="Strong momentum + ORB breakout"
-)
-
-# Get real position from DecisionEngine
-position = await pulse_service.get_real_position("NVDA")
-
-# Emergency exit
-await pulse_service.emergency_exit("NVDA", "Drawdown exceeded threshold")
+```text
+EDGE_AUTOMATION_STATE_FILE=C:\path\to\automation_settings.json
 ```
 
-### API Endpoints for Pulse Integration
+The state file is ignored by git because it is local runtime state.
+
+### API endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/pulse/health` | Pulse connection health status |
-| GET | `/api/pulse/status` | Pulse availability and circuit state |
-| GET | `/api/pulse/positions` | All positions from DecisionEngine |
-| GET | `/api/pulse/positions/{symbol}` | Single position from DecisionEngine |
-| GET | `/api/pulse/queue` | Retry queue status |
-| GET | `/api/pulse/account` | Account status from Pulse |
-| POST | `/api/pulse/emergency-exit/{symbol}` | Trigger emergency exit |
-| POST | `/api/pulse/trailing-stop/{symbol}` | Enable trailing stop |
+| GET | `/api/automation` | Return global/per-ticker settings plus last handoff/suppression status. |
+| PUT | `/api/automation` | Patch global automation settings without erasing ticker overrides. |
+| PUT | `/api/automation/tickers/{symbol}` | Enable/disable autonomous handoff for one ticker. |
 
-Edge listens to the `commands` collection in MongoDB using Change Streams, which provides real-time detection of new documents without polling:
-
-```python
-# backend/analyst/core.py - _watch_pulse_commands()
-pipeline = [{"$match": {"operationType": {"$in": ["insert", "update"]}}}]
-async with self.db.commands.watch(pipeline) as stream:
-    async for change in stream:
-        await self._handle_pulse_command(cmd_type, symbol, doc)
-```
-
-When Pulse inserts a command (like `ORDER_FILLED`), Edge:
-1. **Detects** the change via MongoDB Change Stream (sub-second latency)
-2. **Parses** the command using shared Pydantic models from `commands.py`
-3. **Updates** DecisionEngine state (positions, trade history, PnL tracking)
-4. **Logs** the event for observability and debugging
-
-The handler supports both `insert` and `update` operations, extracting document data from either `fullDocument` (inserts) or `updateDescription.updatedFields` (updates).
-
-### DecisionEngine Integration
-
-The `DecisionEngine` in `backend/engine.py` maintains a real-time view of positions synced from Pulse. It has both async methods for Change Stream updates and sync methods for legacy compatibility:
-
-```python
-# Async methods for Change Stream processing
-await self.decisions.record_trade_result(
-    symbol="NVDA", fill_price=142.35, quantity=50, side="BUY", realized_pnl=0.0
-)
-
-await self.decisions.update_position_state_simple(
-    symbol="NVDA", position_size=50, pnl_pct=2.5, pnl_dollar=125.0
-)
-
-# Query current position state
-position = self.decisions.get_position("NVDA")
-has_position = position is not None
-pnl_pct = position.get("current_pnl_pct", 0.0) if position else 0.0
-```
-
-The DecisionEngine tracks:
-- **Per-symbol positions**: Current position size, entry price, entry time
-- **Trade history**: All executed trades with timestamps, prices, PnL
-- **Consecutive losses**: For risk-based buy throttling
-- **Win rates**: Per-symbol performance metrics
-- **Global kill switch**: Emergency trading halt
-
-### Scheduler Integration
-
-The evaluation scheduler in `backend/scheduler.py` uses real position data from the DecisionEngine rather than relying on local estimates:
-
-```python
-# Step 6: Get real position state from DecisionEngine (synced from Pulse)
-position = self.decisions.get_position(symbol)
-has_position = position is not None
-pnl_pct = position.get("current_pnl_pct", 0.0) if position else 0.0
-pnl_dollar = position.get("current_pnl_dollar", 0.0) if position else 0.0
-
-# Step 7: Make decision with accurate position data
-decision = self.decisions.decide(
-    symbol=symbol,
-    trend=trend,
-    signal_strength=signal_strength,
-    pnl=pnl_dollar,
-    pnl_pct=pnl_pct,  # Real PnL from Pulse
-    has_position=has_position,  # Real position state
-    ...
-)
-```
-
-This ensures risk guards (consecutive loss limits, drawdown protection) fire based on actual position state.
-
-### Circuit Breaker & Retry Queue
-
-The `pulse_client.py` implements a circuit breaker pattern for resilience:
-
-- **CLOSED**: Normal operation, requests go through
-- **OPEN**: Too many failures (≥5), requests are suppressed
-- **HALF_OPEN**: After 60s, allows test requests to check recovery
-
-Failed decisions are queued in `retry_queue.py` for retry when the circuit closes or Pulse becomes available again.
-
-### Testing the Integration
-
-Use the test endpoint to simulate Pulse commands:
+Example:
 
 ```bash
-curl -X POST http://localhost:8000/api/test/pulse-command \
+curl -X PUT http://localhost:8000/api/automation \
   -H "Content-Type: application/json" \
   -d '{
-    "command_type": "ORDER_FILLED",
-    "symbol": "NVDA",
-    "order_id": "test_001",
-    "fill_price": 142.35,
-    "quantity": 50,
-    "side": "BUY"
+    "global_enabled": true,
+    "mode": "live",
+    "min_confidence": 0.75,
+    "cooldown_seconds": 90
   }'
+
+curl -X PUT http://localhost:8000/api/automation/tickers/SPY \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
 ```
 
-Expected Edge logs:
-```
-📤 Test command inserted: ORDER_FILLED | NVDA
-📍 Position sync from Pulse → NVDA | size=50 pnl%=0.00%
-✅ Edge received ORDER_FILLED from Pulse → NVDA | fill=142.35 qty=50
-Trade recorded: BUY 50 NVDA @ 142.35 | PnL: 0.0
-```
+### Scheduler integration
+
+`backend/scheduler.py` now routes decision actions through `_handoff_to_pulse()` before any Pulse command is attempted.
+
+Currently gated actions include:
+
+| Decision | Handoff action |
+|----------|----------------|
+| `Decision.BUY` | `buy` |
+| `Decision.STOP_BUYING` | `stop_buying` |
+| `Decision.ENABLE_TRAILING_STOP` | `trailing_stop` |
+| `Decision.TIGHTEN_TRAILING_STOP` | `tighten_trailing_stop` |
+| `Decision.TIGHTEN_STOP` | `tighten_stop` |
+| `Decision.EMERGENCY_EXIT` | `emergency_exit` |
+
+The command payload includes confidence, reason, ORB session, stop type/trailing percent when applicable, and metadata such as ATR, price, PnL, trend, drawdown, and signal strength.
+
+### Pulse client behavior
+
+`backend/pulse_client.py` includes `send_handoff_command(payload)`.
+
+Behavior:
+
+- If Pulse is unavailable or circuit-open, handoff is suppressed quietly.
+- If `PULSE_HANDOFF_ENDPOINT` is configured, Edge sends the structured payload there.
+- Otherwise Edge falls back to the existing legacy `/api/tickers/{symbol}/decision` endpoint while preserving metadata.
+- No direct broker/exchange calls are made by Edge.
 
 ---
 
-## 📊 System Overview
+## Market-Data Provider Layer
 
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                              SENTINEL EDGE ARCHITECTURE                        │
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │                            FRONTEND (React)                              │  │
-│  │   Dashboard │ Ticker Config │ Backtest Results │ Health Status          │  │
-│  └──────────────────────────────────┬───────────────────────────────────────┘  │
-│                                     │                                             │
-│                                     ▼                                             │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │                         FASTAPI SERVER (backend/server.py)              │  │
-│  │   REST Endpoints │ WebSocket │ Metrics │ Authentication                 │  │
-│  └──────────────────────────────────┬───────────────────────────────────────┘  │
-│                                     │                                             │
-│          ┌──────────────────────────┼──────────────────────────┐               │
-│          ▼                          ▼                          ▼               │
-│  ┌─────────────┐           ┌─────────────────┐          ┌──────────────┐       │
-│  │ Scheduler   │           │ Decision Engine │          │ Pulse Client│       │
-│  │ (eval loop) │           │ (risk logic)    │          │ (HTTP+WS)   │       │
-│  └──────┬──────┘           └────────┬────────┘          └──────┬───────┘       │
-│         │                           │                        │               │
-│         ▼                           │                        │               │
-│  ┌─────────────┐                    │                        │               │
-│  │ Position    │                    │                        │               │
-│  │ Tracker     │◄───────────────────┘                        │               │
-│  └─────────────┘                                             │               │
-│         │                                                     │               │
-│         │                    ┌────────────────────────────────┘               │
-│         │                    │                                                 │
-│         ▼                    ▼                                                 │
-│  ┌────────────────────────────────────────────────────────────────────────┐   │
-│  │                     MARKET DATA LAYER                                  │   │
-│  │  Price Fetchers │ ORB │ ATR │ Signal Engine │ Correlation Engine       │   │
-│  └────────────────────────────────┬───────────────────────────────────────┘   │
-│                                   │                                           │
-│         ┌──────────────────────────┼──────────────────────────┐              │
-│         ▼                          ▼                          ▼              │
-│  ┌─────────────┐          ┌─────────────┐           ┌──────────────┐        │
-│  │ Polygon.io  │          │  Finnhub    │           │  (Fallback)  │        │
-│  └─────────────┘          └─────────────┘           └──────────────┘        │
-│                                                                                 │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+Edge supports safe provider fallback without exposing secrets to the browser.
+
+### Provider files
+
+| File | Purpose |
+|------|---------|
+| `backend/providers/catalog.py` | Browser-safe provider metadata and configured/not-configured booleans. |
+| `backend/providers/health.py` | Provider health state. |
+| `backend/providers/polygon_provider.py` | Polygon integration with corrected date-range aggregate URL. |
+| `backend/providers/finnhub_provider.py` | Finnhub integration. |
+| `backend/providers/alpha_vantage_provider.py` | Alpha Vantage integration. |
+| `backend/providers/twelve_data_provider.py` | Twelve Data integration. |
+| `backend/providers/stooq_provider.py` | Stooq daily/EOD CSV provider for backfill only. |
+| `backend/price_fetcher.py` | Runtime fallback ordering and active provider selection. |
+
+### Provider rules
+
+- Keyed providers activate only when backend env vars are present.
+- API responses expose presence booleans, not key values and not frontend-editable key fields.
+- Stooq is not used for intraday scheduler fallback.
+- Frontend Settings displays read-only provider availability.
+- Frontend does not store API keys in `localStorage`.
+
+### Provider APIs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/market-data/providers` | Provider catalog, fallback order, configured status. |
+| GET | `/api/providers` | Alias/provider list endpoint. |
+| GET | `/api/providers/config` | Redacted provider config metadata. |
+| GET | `/api/providers/health` | Provider health status. |
+| GET | `/api/price/{symbol}` | Current market price. |
+| GET | `/api/quote/{symbol}` | Current quote. |
+
+### Relevant env vars
+
+| Variable | Purpose |
+|----------|---------|
+| `MARKET_DATA_PROVIDER_ORDER` | Comma-separated intraday fallback order. |
+| `FINNHUB_API_KEY` | Enables Finnhub. |
+| `POLYGON_API_KEY` | Enables Polygon. |
+| `ALPHA_VANTAGE_API_KEY` | Enables Alpha Vantage. |
+| `TWELVE_DATA_API_KEY` | Enables Twelve Data. |
 
 ---
 
-## 📂 Repository Structure
+## Advisor Health Dashboard
 
+`frontend/src/components/dashboards/AdvisorHealth.tsx` is the operational status view for Edge as an advisor/automation runtime.
+
+It shows:
+
+- Edge service state.
+- Pulse link state and circuit state.
+- Kill-switch status as a read-only indicator.
+- Recent recommendation count.
+- Pulse handoff mode/status.
+- Latest automation handoff or suppression event.
+- Active market-data fallback order.
+- Provider health and last success/error counts.
+- Runtime details such as scheduler state, retry queue, ORB levels, active tickers, and Pulse failures.
+
+This replaced a duplicate/static Service Health tab and removed top-level execution-like tabs from primary navigation where they were confusing for Edge’s current role.
+
+---
+
+## Settings Dashboard
+
+`frontend/src/components/dashboards/SettingsDashboard.tsx` now includes:
+
+- Read-only Market Data Providers panel.
+- No frontend API-key entry or secret persistence.
+- Autonomous Pulse Handoff panel:
+  - global enable/disable
+  - mode selector (`recommend_only`, `paper`, `live`)
+  - min confidence
+  - cooldown seconds
+  - default ticker behavior
+  - per-ticker handoff switches
+
+Settings still stores non-secret UI preferences in browser localStorage, but secret-like fields are filtered during migration/save.
+
+---
+
+## Standalone and Local Startup Behavior
+
+Edge is designed to be useful when Pulse is absent.
+
+### Demo/standalone mode
+
+```bash
+DEMO_MODE=true python backend/server.py
 ```
+
+In demo mode:
+
+- MongoDB client creation is skipped.
+- Pulse health probing is skipped unless `PULSE_PROBE_IN_DEMO=true`.
+- Correlation Pulse override calls are suppressed.
+- Edge continues to run analysis where available.
+
+### Browser startup
+
+When run directly, `backend/server.py` can open the UI after the backend health endpoint is ready.
+
+| Variable | Description |
+|----------|-------------|
+| `SENTINEL_EDGE_OPEN_BROWSER` | Set `false` to disable browser launch. |
+| `SENTINEL_EDGE_HOST` | Backend bind host. |
+| `SENTINEL_EDGE_PORT` | Backend port. |
+| `SENTINEL_EDGE_UI_URL` | Override UI URL to open. |
+
+---
+
+## Pulse Integration
+
+Pulse remains the executor. Edge sends instructions only through Pulse-facing APIs.
+
+### Pulse APIs used by Edge
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/pulse/status` | Pulse availability/circuit status from Edge. |
+| GET | `/api/pulse/positions` | Position view exposed through Edge. |
+| GET | `/api/pulse/queue` | Retry queue status. |
+| POST | `/api/pulse/emergency-exit/{symbol}` | Manual emergency exit bridge. |
+| POST | `/api/pulse/trailing-stop/{symbol}` | Manual trailing-stop bridge. |
+| POST | `/api/tickers/{symbol}/decision` | Legacy Edge → Pulse decision endpoint. |
+| Optional | `PULSE_HANDOFF_ENDPOINT` | Structured autonomous handoff endpoint if Pulse implements it. |
+
+### Circuit breaker behavior
+
+`PulseClient` tracks:
+
+- `CLOSED` — normal operation.
+- `OPEN` — too many failures; requests are suppressed.
+- `HALF_OPEN` — recovery probe state.
+
+For autonomous handoff, Edge does not spam Pulse while absent/circuit-open. It suppresses quietly and exposes status through automation/health APIs.
+
+---
+
+## Repository Structure
+
+```text
 sentinel-edge/
 ├── backend/
-│   ├── server.py                    # FastAPI main entry point + all REST endpoints
-│   ├── engine.py                    # DecisionEngine with Pulse feedback loop
-│   ├── scheduler.py                 # Evaluation scheduler with position awareness
-│   ├── pulse_client.py             # Circuit breaker HTTP client for Pulse
-│   ├── price_fetcher.py            # Multi-provider price aggregation
-│   ├── position_tracker.py         # Local position state management
-│   ├── retry_queue.py              # Priority queue for failed decisions
-│   ├── signals.py                  # Signal scoring engine
-│   ├── orb.py                       # Opening Range Breakout detection
-│   ├── atr.py                       # Average True Range calculator
-│   ├── metrics.py                  # Prometheus metrics exports
-│   ├── state_persistence.py        # MongoDB state storage
-│   ├── shared/
-│   │   └── commands.py             # Pydantic models for Pulse ↔ Edge commands
-│   ├── analyst/
-│   │   ├── core.py                  # SentinelEdge orchestrator + Change Streams
-│   │   ├── correlation/
-│   │   │   └── engine.py            # Market correlation detection
-│   │   ├── signals/
-│   │   │   └── *.py                 # Signal plugins
-│   │   ├── exporters/
-│   │   │   └── prometheus.py        # Prometheus metrics server
-│   │   └── observability/
-│   │       └── otel.py              # OpenTelemetry tracing
+│   ├── server.py                         # FastAPI app, lifespan wiring, REST endpoints
+│   ├── automation.py                     # Global/per-ticker autonomous handoff controls
+│   ├── scheduler.py                      # Evaluation loop, ORB/ATR/signal decisions, handoff gate
+│   ├── engine.py                         # DecisionEngine/risk logic
+│   ├── pulse_client.py                   # Pulse HTTP client, circuit breaker, quiet handoff
+│   ├── price_fetcher.py                  # Market-data provider fallback selection
+│   ├── orb.py                            # Opening Range Breakout tracking
+│   ├── atr.py                            # Average True Range calculation
 │   ├── providers/
-│   │   ├── base.py                  # BasePriceProvider abstract class
-│   │   ├── polygon_provider.py      # Polygon.io integration
-│   │   ├── finnhub_provider.py      # Finnhub integration
-│   │   └── health.py                # Provider health monitoring
-│   ├── backtest/
-│   │   ├── engine.py                # BacktestEngine with slippage/commission
-│   │   ├── monte_carlo.py          # Monte Carlo simulation
-│   │   └── runner.py                # Backtest CLI runner
-│   ├── strategies/
-│   │   ├── versioning.py            # Strategy version manager
-│   │   └── optimizer.py             # Grid search optimizer
-│   ├── routes/
-│   │   ├── analyze.ts              # Analysis endpoints
-│   │   ├── emergencyStop.ts        # Emergency stop endpoints
-│   │   └── webhook.ts              # Webhook handlers
-│   ├── services/
-│   │   ├── logService.ts           # Logging service
-│   │   ├── orbEvaluator.ts         # ORB evaluation service
-│   │   └── pulseClient.ts          # Pulse client (TypeScript)
+│   │   ├── catalog.py                    # Browser-safe provider metadata
+│   │   ├── health.py                     # Provider health state
+│   │   ├── finnhub_provider.py
+│   │   ├── polygon_provider.py
+│   │   ├── alpha_vantage_provider.py
+│   │   ├── twelve_data_provider.py
+│   │   └── stooq_provider.py             # EOD/backfill only
+│   ├── analyst/
+│   │   ├── core.py                       # SentinelEdge orchestrator / change-stream path
+│   │   └── correlation/engine.py         # Correlation logic and standalone suppression
+│   ├── backtest/                         # Backtest/simulation engines
+│   ├── options/                          # Greeks/IV modules
 │   └── tests/
-│       ├── test_engine_risk_overrides.py
-│       ├── test_pulse_retry_queue.py
-│       └── test_decision_feed_and_tickers.py
-│
+│       └── test_market_data_providers.py # Provider safety tests
 ├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Dashboard.tsx        # Main trading dashboard
-│   │   │   ├── TickerConfigModal.tsx
-│   │   │   ├── BacktestResultsChart.tsx
-│   │   │   └── HealthStatusCard.tsx
-│   │   ├── lib/
-│   │   │   ├── api.ts              # REST API client
-│   │   │   ├── ws.ts               # WebSocket client
-│   │   │   └── hooks.ts            # React hooks
-│   │   └── pages/
-│   ├── package.json
-│   └── vite.config.ts
-│
-├── docker-compose.yml              # Full stack orchestration
-├── docker-compose.monitoring.yml   # Prometheus + Grafana
-├── prometheus/
-│   ├── prometheus.yml              # Prometheus configuration
-│   └── rules.yml                   # Alerting rules
-├── grafana/
-│   └── dashboards/                  # Pre-built dashboards
-└── README.md                        # This file
+│   └── src/
+│       ├── App.tsx                       # Dashboard navigation
+│       ├── lib/api.ts                    # Native fetch API helpers
+│       └── components/dashboards/
+│           ├── AdvisorHealth.tsx         # Operational health/status dashboard
+│           └── SettingsDashboard.tsx     # Provider + automation settings
+├── docker-compose.yml
+└── README.md
 ```
 
 ---
 
-## 🛠️ Features
+## API Summary
 
-### Phase 1: Core Metrics
-- **Opening Range Breakout (ORB)** — Track 9:30-9:45 AM volatility window
-- **Average True Range (ATR)** — Volatility-adjusted position sizing
-- **Momentum Signals** — Composite signal scoring engine (-10 to +10 scale)
-- **Real-time price updates** — Multi-timeframe analysis with WebSocket
+### Health and runtime
 
-### Phase 2: Scheduler
-- **Config-driven evaluation** — Per-symbol parameter overrides
-- **Scheduled execution** — Configurable intervals per ticker
-- **Market hours filtering** — US market open detection (9:30 AM - 4:00 PM ET)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Backend health and runtime state. |
+| GET | `/api/stats` | Runtime statistics. |
+| GET | `/api/emergency/kill-switch` | Read-only kill-switch status. |
+| POST | `/api/emergency/kill-switch` | Toggle kill switch. |
 
-### Phase 3: WebSocket Integration
-- **Real-time price feeds** — Live market data streaming
-- **Exponential backoff** — Reconnection resilience (5s → 120s max)
-- **Dynamic subscriptions** — Per-symbol update management
+### Tickers and decisions
 
-### Phase 4: Provider Health
-- **Multi-provider fallback** — Primary/secondary/tertiary price sources
-- **Health monitoring** — Provider latency & failure tracking
-- **Drag-to-reorder** — UI for provider priority management
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/tickers` | Active tickers with enriched live state. |
+| POST | `/api/tickers/{symbol}` | Add ticker. |
+| DELETE | `/api/tickers/{symbol}` | Remove ticker. |
+| GET | `/api/tickers/{symbol}/config` | Get ticker metric/risk config. |
+| PUT | `/api/tickers/{symbol}/config` | Update ticker metric/risk config. |
+| GET | `/api/decisions` | Recent advisor decisions. |
 
-### Phase 5: Backtest & Dry-Run
-- **Historical simulation** — Replay strategy on historical data
-- **Dry-run mode** — Simulated trading without capital
-- **Equity curve** — Track portfolio growth over time
+### Automation
 
-### Phase 6: Provider Implementations
-- **Polygon.io** — Full REST + WebSocket support
-- **Finnhub** — Quote + candle endpoints
-- **Slippage modeling** — Realistic execution costs
-- **Commission tracking** — Per-trade cost accounting
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/automation` | Handoff settings/status. |
+| PUT | `/api/automation` | Patch handoff settings. |
+| PUT | `/api/automation/tickers/{symbol}` | Enable/disable ticker handoff. |
 
-### Phase 7: Monte Carlo
-- **Probabilistic simulation** — 1000+ outcome paths
-- **Risk metrics** — Value at Risk (VaR), profit probability
-- **Stress testing** — Volatility multiplier scenarios
+### Market data
 
-### Phase 8: Strategy Optimization
-- **Grid search** — Automated parameter tuning
-- **Strategy versioning** — Performance history tracking
-- **Production safeguards** — Circuit breaker + kill switch
-- **Daily loss limits** — Automatic trading pause at -5%
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/market-data/providers` | Browser-safe provider catalog and fallback order. |
+| GET | `/api/providers` | Provider list alias. |
+| GET | `/api/providers/config` | Redacted provider config metadata. |
+| GET | `/api/providers/health` | Provider health. |
+| GET | `/api/price/{symbol}` | Current price. |
+| GET | `/api/quote/{symbol}` | Current quote. |
+| GET | `/api/orb/{symbol}` | ORB levels. |
 
-### Phase 9: Pulse Integration (NEW)
-- **Bidirectional command bus** — MongoDB Change Streams
-- **Real-time position sync** — Actual PnL from broker
-- **Order fill tracking** — Closed-loop trade result recording
-- **Circuit breaker** — Graceful degradation when Pulse unavailable
+### Pulse bridge
 
-### Phase 10: Options Greeks (NEW)
-- **Delta** — Direction & Probability (sensitivity to price movement)
-- **Theta** — Time Decay (daily value erosion)
-- **Vega** — Volatility Sensitivity (IV impact)
-- **Gamma** — Delta Acceleration (rate of delta change)
-- **Rho** — Interest Rate Sensitivity (bond yield impact)
-- **GEX/VEX** — Gamma/Vega Exposure aggregates
-- **IV Percentile Tracking** — Historical IV comparison (1st-99th percentile)
-- **Volatility Spike Protection** — Alerts when IV >50% above recent average
-- **Unified Greeks Engine** — Configurable computation (exclude unused Greeks for performance)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/pulse/status` | Pulse availability/circuit status. |
+| GET | `/api/pulse/positions` | Position view. |
+| GET | `/api/pulse/queue` | Retry queue. |
+| GET | `/api/pulse/account` | Account view if Pulse available. |
+| POST | `/api/pulse/emergency-exit/{symbol}` | Manual emergency exit bridge. |
+| POST | `/api/pulse/trailing-stop/{symbol}` | Manual trailing-stop bridge. |
+
+### Backtest/simulation and options
+
+The repository also contains backtest, strategy optimization, portfolio/paper modules, and options Greeks endpoints. These are evolving toward a broader Simulation Lab and should remain default-hidden or clearly non-live unless explicitly enabled.
 
 ---
 
-## 🧰 Tech Stack
+## Environment Variables
 
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Backend Framework | FastAPI | 0.115+ |
-| Async Runtime | asyncio / uvicorn | Python 3.11+ |
-| Database | MongoDB (Motor) | 6.0+ |
-| Frontend | React + TypeScript | 18+ / 5.0+ |
-| Build Tool | Vite | 5.0+ |
-| HTTP Client | httpx | 0.27+ |
-| Data Handling | pandas / numpy | latest |
-| Validation | Pydantic | 2.0+ |
-| Observability | OpenTelemetry | 1.0+ |
-| Metrics | Prometheus | 2.0+ |
+### Core runtime
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DEMO_MODE` | Run without MongoDB and suppress expected-absent Pulse behavior. | `false` |
+| `DB_NAME` | MongoDB database name. | `sentinel_edge` |
+| `DB_HOST` | MongoDB host. | `localhost` |
+| `DB_PORT` | MongoDB port. | `27017` |
+| `PULSE_API_URL` | Sentinel Pulse API URL. | `http://localhost:8002` in local code path |
+| `PULSE_API_KEY` | Optional Pulse API key header. | unset |
+| `PULSE_PROBE_IN_DEMO` | Probe Pulse even in demo mode. | `false` |
+| `GLOBAL_KILL_SWITCH` | Global kill switch state. | `false` |
+
+### Local browser startup
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SENTINEL_EDGE_OPEN_BROWSER` | Open UI after backend health is ready. | `true` for direct local startup |
+| `SENTINEL_EDGE_HOST` | Backend host. | local default |
+| `SENTINEL_EDGE_PORT` | Backend port. | local default |
+| `SENTINEL_EDGE_UI_URL` | Explicit UI URL to open. | derived local URL |
+
+### Automation
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `EDGE_PULSE_HANDOFF_ENABLED` | Initial global handoff switch. Saved local settings can override after first save. | `false` |
+| `EDGE_AUTOMATION_MODE` | Initial mode: `recommend_only`, `paper`, or `live`. | `recommend_only` |
+| `EDGE_PULSE_HANDOFF_DEFAULT_TICKERS` | Initial default per-ticker handoff state. | `false` |
+| `EDGE_AUTOMATION_STATE_FILE` | Local automation settings path. | `data/automation_settings.json` |
+| `PULSE_HANDOFF_ENDPOINT` | Optional structured Pulse handoff endpoint. | unset, fallback to legacy decision endpoint |
+
+### Market data
+
+| Variable | Description |
+|----------|-------------|
+| `MARKET_DATA_PROVIDER_ORDER` | Comma-separated intraday provider order. |
+| `FINNHUB_API_KEY` | Enables Finnhub. |
+| `POLYGON_API_KEY` | Enables Polygon. |
+| `ALPHA_VANTAGE_API_KEY` | Enables Alpha Vantage. |
+| `TWELVE_DATA_API_KEY` | Enables Twelve Data. |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Clone & Install
-```bash
-git clone https://github.com/Tetradim/sentinel-edge.git
-cd sentinel-edge
-```
+### Backend
 
-### 2. Backend Setup
 ```bash
+cd backend
 python -m venv venv
-source venv/bin/activate
-pip install -r backend/requirements.txt
-cp .env.example .env
+venv\Scripts\activate   # Windows PowerShell/CMD style may vary
+pip install -r requirements.txt
+python server.py
 ```
 
-### 3. Run Backend
+For standalone/demo analysis without MongoDB/Pulse noise:
+
 ```bash
-uvicorn backend.server:app --reload --host 0.0.0.0 --port 8000
+set DEMO_MODE=true
+python server.py
 ```
 
-### 4. Run Frontend
+Or with uvicorn:
+
+```bash
+python -m uvicorn server:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Frontend
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### 5. Docker Deployment
+### Docker
+
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ---
 
-## 📡 API Endpoints
+## Verification Used During Recent Work
 
-### Market Data
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/markets` | List available markets |
-| GET | `/api/markets/{symbol}/price` | Current price for symbol |
-| GET | `/api/orb/{symbol}` | ORB levels for all timeframes |
-| GET | `/api/markets/{symbol}/ohlcv` | OHLCV candles |
-
-### Configuration
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/tickers` | List all ticker configurations |
-| POST | `/api/tickers/{symbol}` | Add new ticker |
-| DELETE | `/api/tickers/{symbol}` | Remove ticker |
-| PUT | `/api/tickers/{symbol}/config` | Update ticker config |
-
-### Control
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/control/pause` | Pause evaluation loop |
-| POST | `/api/control/resume` | Resume evaluation loop |
-| POST | `/api/control/start` | Start scheduler |
-| POST | `/api/control/stop` | Stop scheduler |
-
-### Backtest & Optimization
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/backtest` | Run historical simulation |
-| GET | `/api/dry-run/status` | Check dry-run state |
-| POST | `/api/backtest/optimize` | Grid search optimization |
-
-### Emergency & Testing
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/emergency/kill-switch` | Toggle global kill switch |
-| POST | `/api/test/pulse-command` | **Test Pulse → Edge integration** |
-
-### Metrics & Health
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health` | System health check |
-| GET | `/api/stats` | Runtime statistics |
-| GET | `/api/providers/health` | Provider health status |
-| GET | `/api/queue` | Retry queue status |
-
-### Options Greeks (NEW)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/greeks/{symbol}` | Get unified Greeks analysis |
-| GET | `/api/greeks/{symbol}/delta` | Delta analysis only |
-| GET | `/api/greeks/{symbol}/theta` | Theta analysis only |
-| GET | `/api/greeks/{symbol}/vega` | Vega analysis only |
-| GET | `/api/greeks/{symbol}/gamma` | Gamma analysis only |
-| GET | `/api/greeks/{symbol}/iv-history` | IV percentile history |
-| GET | `/api/greeks/config` | Get Greeks config |
-| POST | `/api/greeks/config` | Update Greeks config |
-
----
-
-## 📈 Backtest Engine
-
-Run historical simulation with realistic modeling:
-
-```json
-{
-  "symbol": "SPY",
-  "start_date": "2024-01-01",
-  "end_date": "2024-12-31",
-  "initial_capital": 10000,
-  "slippage_pct": 0.05,
-  "commission_pct": 0.1,
-  "num_simulations": 1000
-}
-```
-
-Returns:
-- **Equity curve** — Portfolio value over time
-- **Trade log** — Every entry/exit with P&L
-- **Performance metrics** — Sharpe, Sortino, max drawdown
-- **Monte Carlo analysis** — Probabilistic outcomes
-
----
-
-## 🎲 Monte Carlo Simulation
-
-| Metric | Description |
-|--------|-------------|
-| `median_final_equity` | 50th percentile outcome |
-| `worst_case_equity` | 5th percentile (VaR at 95%) |
-| `probability_of_profit` | % of runs with positive return |
-| `mean_max_drawdown` | Average peak-to-trough |
-| `best_case_equity` | 95th percentile |
-
----
-
-## 🛡️ Production Safeguards
-
-| Safeguard | Description | Trigger |
-|-----------|-------------|---------|
-| **Kill Switch** | Instantly halts all trading | Manual toggle via API |
-| **Daily Loss Limit** | Auto-pause at -5% daily loss | Every evaluation cycle |
-| **Max Consecutive Losses** | Exit after 3+ consecutive losses | Risk check in decide() |
-| **Max Drawdown** | Emergency exit at -10% drawdown | Per-position drawdown |
-| **Circuit Breaker** | Provider fallback on failure | 5+ failures triggers OPEN state |
-| **Retry Queue** | Persist failed decisions | Retry when circuit closes |
-| **Position Size Limits** | Max position sizing | Config per ticker |
-
----
-
-## 🔍 Testing
+The recent implementation has been checked with:
 
 ```bash
-# Run all tests
-pytest backend/tests/ -v
-
-# Run specific test file
-pytest backend/tests/test_pulse_retry_queue.py -v
-
-# Run with coverage
-pytest backend/tests/ --cov=backend --cov-report=html
+python -m py_compile backend\automation.py backend\scheduler.py backend\pulse_client.py backend\server.py
 ```
 
-### Test Integration with Pulse
+Automation gate/persistence smoke:
 
 ```bash
-# Test 1: Simulate ORDER_FILLED from Pulse
-curl -X POST http://localhost:8000/api/test/pulse-command \
-  -H "Content-Type: application/json" \
-  -d '{"command_type": "ORDER_FILLED", "symbol": "AAPL", "order_id": "test_1", "fill_price": 175.50, "quantity": 100, "side": "BUY"}'
-
-# Test 2: Simulate POSITION_UPDATE
-curl -X POST http://localhost:8000/api/test/pulse-command \
-  -H "Content-Type: application/json" \
-  -d '{"command_type": "POSITION_UPDATE", "symbol": "AAPL", "position_size": 100, "current_pnl_pct": 2.5, "current_pnl_dollar": 250.0}'
+python -c "from automation import AutomationController, HandoffCommand, AutomationAction, AutomationMode; c=AutomationController(); cmd=HandoffCommand(symbol='spy', action=AutomationAction.BUY, confidence=.9, reason='test', mode=AutomationMode.LIVE); assert c.plan(cmd)[0] is False; c.update_settings({'global_enabled': True, 'mode': 'live', 'per_ticker_enabled': {'SPY': True}, 'cooldown_seconds': 0}); assert c.plan(cmd)[0] is True; print('automation gate/persistence ok')"
 ```
 
----
-
-## 📊 Monitoring
-
-### Prometheus Metrics
-
-Key metrics exported:
-- `edge_decision_total` — Decision count by symbol and type
-- `edge_consecutive_losses` — Current loss streak per symbol
-- `edge_win_rate` — Win rate percentage per symbol
-- `broker_circuit_state` — Pulse circuit breaker state (0=closed, 1=half-open, 2=open)
-- `broker_failure_rate` — Failure rate percentage
-- `edge_api_latency` — API call latency histogram
-- `edge_api_calls_total` — API call count by endpoint and status
-
-### Grafana Dashboards
-
-Pre-built dashboards available in `grafana/dashboards/`:
-- **Trading Overview** — P&L, trade count, win rate
-- **Risk Metrics** — Drawdown, consecutive losses, position sizes
-- **Provider Health** — Latency, uptime, fallback status
-
----
-
-## 🔧 Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DB_NAME` | MongoDB database name | `sentinel_edge` |
-| `DB_HOST` | MongoDB host | `localhost` |
-| `DB_PORT` | MongoDB port | `27017` |
-| `PULSE_API_URL` | Sentinel Pulse URL | `http://pulse:8001` |
-| `POLYGON_API_KEY` | Polygon.io API key | (required) |
-| `FINNHUB_API_KEY` | Finnhub API key | (optional) |
-| `GLOBAL_KILL_SWITCH` | Kill switch state | `false` |
-| `ANALYST_START_METRICS_SERVER` | Start Prometheus on port 8002 | `false` |
-| `DRY_RUN` | Dry run mode (no trades) | `true` |
-
----
-
-## 📝 Disclaimer
-
-This software is for educational purposes. Past backtest results do not guarantee future performance. Always use paper trading before deploying with live capital. Trading involves substantial risk of loss.
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
-
----
-
-## 🚀 Quick Start — Paper Trading Mode
-
-No API keys required! Start paper trading immediately:
+Frontend build:
 
 ```bash
-# Start the backend
-cd backend
-pip install -r requirements.txt
-python -m uvicorn server:app --reload
-
-# Start the frontend
 cd frontend
-npm install
-npm start
+npm.cmd run build
 ```
 
-### Paper Trading Dashboard
+Known current local limitation:
 
-Access the **Paper Trading** tab in the frontend to:
-- Place mock orders (market/limit/stop)
-- Track positions and P&L
-- Manage pending orders
-- View account equity and buying power
-
-### Portfolio Analytics
-
-Access the **Portfolio** tab to see:
-- Portfolio allocation pie chart
-- Position P&L bar chart
-- Real-time metrics (VaR, diversification score)
-- Position table with unrealized/realized P&L
-
-### Settings
-
-Configure behavior in the **Settings** tab:
-- Data source (mock/yfinance/binance)
-- Risk parameters (position size, stop loss, take profit)
-- Paper trading settings (initial cash, slippage, commission)
-- Rate limiting configuration
+- `pytest` is not installed in the current local environment (`No module named pytest`). Existing provider tests are present but were not run in that environment.
+- Vite build currently succeeds with existing warnings about `mockData.ts` mixed static/dynamic import and large bundle chunks.
 
 ---
 
-## 📊 New Features Summary
+## Roadmap / Next Build Slices
 
-### Backend (`backend/data_feeder.py`)
+### Highest priority
 
-| Feature | Description |
-|---------|-------------|
-| **Multi-Source Data** | MOCK, YFINANCE, BINANCE data providers |
-| **Paper Broker** | Simulated trading with realistic fills |
-| **Rate Limiter** | Token bucket + exponential backoff |
-| **Portfolio Analytics** | VaR, position tracking, P&L |
+1. **ORB session model v1**
+   - distinct `premarket_30m` and `market_open` ORB sessions
+   - persist ORB session state and decision context
+   - expose ORB session status in UI
 
-### Backend (`backend/signals_enhanced.py`)
+2. **Pulse structured handoff contract**
+   - finalize Pulse endpoint/schema for `PULSE_HANDOFF_ENDPOINT`
+   - align idempotency, action types, stop/trail/DCA fields, paper/live semantics
+   - add Pulse-side acceptance/rejection feedback
 
-| Feature | Description |
-|---------|-------------|
-| **Advanced Patterns** | 60+ TA-Lib candlestick patterns + complex (H&S, Double Top/Bottom) |
-| **Multi-Timeframe** | Higher timeframe confirmation |
-| **Confidence Scoring** | Volume, trend, momentum, RSI weighted |
-| **Synthetic Data** | Test data generator for patterns |
+3. **Simulation Lab foundation**
+   - ORB backtesting
+   - buying-power allocation experiments
+   - stop vs trailing-stop vs DCA comparisons
+   - keep default-hidden/off unless explicitly enabled
 
-### Backend (`backend/backtest/engine.py`)
+4. **Chart Workspace v1**
+   - TradingView-style or custom chart workspace
+   - ORB overlays
+   - indicator toggles such as EMA/SMA, RSI, MACD
+   - Sentinel-themed/customizable/plugin-like layout
 
-| Feature | Description |
-|---------|-------------|
-| **Strategies** | SMA, RSI, Breakout, Pattern-enhanced |
-| **Strategy Registry** | Factory for strategy creation |
-| **Observation Replay** | Simulate Pulse feedback in backtests |
-| **Monte Carlo** | Probabilistic simulation |
+### Later
 
-### Frontend (`frontend/src/components/dashboards/`)
-
-| Dashboard | Features |
-|-----------|----------|
-| `GreeksDashboard.tsx` | Delta, Theta, Vega, Gamma charts, IV percentile, volatility regimes |
-| `PaperTrading.tsx` | Order form, positions, account |
-| `PortfolioAnalytics.tsx` | Charts, metrics, position table |
-| `SettingsDashboard.tsx` | Config UI, Greek toggles, Advanced Options |
-| `TutorialsDashboard.tsx` | Learning center with Greeks & volatility tutorials |
-
-### Backend (`backend/options/`)
-
-| Module | Features |
-|--------|----------|
-| `delta.py` | Direction & Probability analysis |
-| `theta.py` | Time Decay analysis |
-| `gamma.py` | Position-level gamma tracking |
-| `gex.py` | Gamma Exposure aggregate |
-| `vex.py` | Vega Exposure aggregate |
-| `unified_greeks.py` | Unified engine, IV percentiles, spike protection |
-
-### API Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `POST /api/paper/order` | Submit paper order |
-| `GET /api/paper/account` | Get account state |
-| `GET /api/paper/portfolio` | Portfolio analytics |
-| `POST /api/backtest/run` | Run enhanced backtest |
-| `GET /api/strategies` | List available strategies |
-| `GET /api/strategies/{name}` | Strategy details |
+- Prometheus/Grafana-style observability panels inside Edge UI.
+- Correlation and trailing-stop recommendation refinement.
+- Confirmation/notification paths via Telegram/Discord/WhatsApp.
+- Mac/Apple build workflow after Windows local beta is stable.
 
 ---
 
-## 📄 License
+## Safety Notes
 
-MIT License - See LICENSE file for details
+- Do not commit API keys or secrets.
+- Do not store API keys in frontend localStorage.
+- Do not scrape sources that disallow it.
+- Do not make live broker calls from tests without explicit operator approval.
+- Edge should not spam Pulse or logs when Pulse is absent.
+- Paper/simulation features should stay clearly separated from live handoff.
+- Volume anomaly/darkpool/options-flow intelligence belongs primarily in Darkpool-Mon, not Edge.
+
+---
+
+## License
+
+MIT License - See LICENSE file for details.
