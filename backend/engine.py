@@ -78,6 +78,7 @@ class DecisionEngine:
         self.trade_history: Dict[str, List[dict]] = defaultdict(list)
         self.win_rate: Dict[str, float] = defaultdict(float)
         self.daily_pnl: Dict[str, float] = defaultdict(float)
+        self.account_state: Dict[str, Any] = {}
         
         # Global kill switch
         self.global_kill_switch = False
@@ -100,9 +101,10 @@ class DecisionEngine:
         self,
         symbol: str,
         fill_price: float,
-        quantity: float,
-        side: str,
-        realized_pnl: Optional[float] = None
+        quantity: float = 0.0,
+        side: str = "SELL",
+        realized_pnl: Optional[float] = None,
+        order_id: Optional[str] = None,
     ):
         """Called when Pulse reports an order was filled.
         
@@ -110,10 +112,13 @@ class DecisionEngine:
         matching how it's called from the change stream handler.
         """
         symbol = symbol.upper()
+        if realized_pnl is None and quantity == 0.0 and side == "SELL":
+            self.record_trade_result_legacy(symbol, profit=fill_price)
+            return
         
         self.trade_history[symbol].append({
             "timestamp": datetime.utcnow(),
-            "order_id": "",
+            "order_id": order_id or "",
             "side": side,
             "price": fill_price,
             "quantity": quantity,
@@ -134,6 +139,7 @@ class DecisionEngine:
 
         # Track consecutive losses (also update original tracking)
         if realized_pnl is not None:
+            self.daily_pnl[symbol] += realized_pnl
             if realized_pnl < 0:
                 self.consecutive_losses[symbol] += 1
             else:
@@ -407,6 +413,7 @@ class DecisionEngine:
         
         # Update position PnL
         self.position_pnl[symbol] = final_pnl
+        self.daily_pnl[symbol] += final_pnl
         
         # Update metrics
         edge_consecutive_losses.labels(symbol=symbol).set(self.consecutive_losses[symbol])
@@ -460,6 +467,19 @@ class DecisionEngine:
                 total_equity, unrealized_pnl, drawdown_pct
             )
 
+        if self.peak_equity_total <= 0:
+            drawdown_pct = 0.0
+
+        self.account_state = {
+            "total_equity": total_equity,
+            "equity": total_equity,
+            "available_balance": available_balance,
+            "margin_used": margin_used,
+            "unrealized_pnl": unrealized_pnl,
+            "drawdown_pct": drawdown_pct,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
     def record_order_rejected(
         self,
         symbol: str,
@@ -491,6 +511,21 @@ class DecisionEngine:
     def get_all_positions(self) -> Dict[str, dict]:
         """Get all positions."""
         return self.positions
+
+    def get_daily_pnl_pct(self) -> float:
+        """Return today's realized PnL as a percentage of known account equity."""
+        total_pnl = sum(float(value) for value in self.daily_pnl.values())
+        equity = float(
+            self.account_state.get("start_of_day_equity")
+            or self.account_state.get("starting_equity")
+            or self.account_state.get("previous_close_equity")
+            or self.account_state.get("total_equity")
+            or self.account_state.get("equity")
+            or 0.0
+        )
+        if equity <= 0:
+            return 0.0
+        return (total_pnl / equity) * 100.0
 
     def reset_daily(self):
         """Call this at market open"""

@@ -257,9 +257,9 @@ export function SettingsDashboard() {
     
     localStorage.setItem('edge_config', JSON.stringify(config));
     
-    // Also try to save to backend
+    // Validate against backend schema when available; browser storage remains the source.
     try {
-      await fetch('/api/config', {
+      await fetch('/api/config/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)

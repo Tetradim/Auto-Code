@@ -47,7 +47,7 @@ that ticker. Prometheus counters record every failure for alerting.
 import asyncio
 import logging
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import yfinance as yf
@@ -142,7 +142,11 @@ class PriceFetcher:
     # Core — single network call shared by all public methods
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def _get_ohlcv_cached(self, symbol: str) -> Optional[pd.DataFrame]:
+    async def _get_ohlcv_cached(
+        self,
+        symbol: str,
+        provider_order: Optional[List[str]] = None,
+    ) -> Optional[pd.DataFrame]:
         """Return a fresh-or-cached 2d/1m OHLCV DataFrame for *symbol*.
 
         Call graph
@@ -174,7 +178,12 @@ class PriceFetcher:
 
             # ── 4. Fetch using configured intraday provider fallback order ────
             t0 = time.monotonic()
-            for provider_name in self.provider_order:
+            requested_order = [
+                provider
+                for provider in (provider_order or self.provider_order)
+                if provider in self.provider_order
+            ] or self.provider_order
+            for provider_name in requested_order:
                 try:
                     if provider_name == "yfinance":
                         loop = asyncio.get_running_loop()
@@ -221,7 +230,11 @@ class PriceFetcher:
     # Public API
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def get_price_with_volume(self, symbol: str) -> Optional[Tuple[float, float]]:
+    async def get_price_with_volume(
+        self,
+        symbol: str,
+        provider_order: Optional[List[str]] = None,
+    ) -> Optional[Tuple[float, float]]:
         """Return ``(close, volume)`` for the most recent 1m bar.
 
         This is the primary method called by the scheduler every evaluation
@@ -233,7 +246,7 @@ class PriceFetcher:
         if live:
             return live
 
-        df = await self._get_ohlcv_cached(symbol)
+        df = await self._get_ohlcv_cached(symbol, provider_order=provider_order)
         if df is None or df.empty:
             return None
         last = df.iloc[-1]
@@ -244,6 +257,7 @@ class PriceFetcher:
         symbol: str,
         period: str = "2d",
         interval: str = "1m",
+        provider_order: Optional[List[str]] = None,
     ) -> Optional[pd.DataFrame]:
         """Return the full OHLCV DataFrame for *symbol*.
 
@@ -260,7 +274,7 @@ class PriceFetcher:
                 "only 1m interval is cached; returning 2d/1m",
                 symbol, period, interval,
             )
-        return await self._get_ohlcv_cached(symbol)
+        return await self._get_ohlcv_cached(symbol, provider_order=provider_order)
 
     async def get_current_price(self, symbol: str) -> Optional[float]:
         """Return the most recent close price."""

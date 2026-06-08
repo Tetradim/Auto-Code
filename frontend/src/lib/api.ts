@@ -53,13 +53,6 @@ class ApiClient {
     return fetchJSON(`/api/tickers/${symbol}/config`);
   }
 
-  async updatePriceProviders(symbol: string, providers: string[]) {
-    return fetchJSON(`/api/tickers/${symbol}/price-providers`, {
-      method: 'PUT',
-      body: JSON.stringify({ symbol, price_providers: providers }),
-    });
-  }
-
   async getOrbLevels(symbol: string) {
     return fetchJSON(`/api/orb/${symbol}`);
   }

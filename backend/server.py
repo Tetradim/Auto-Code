@@ -96,6 +96,7 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
 _RATE_LIMIT_WINDOW_SECONDS = 60
 _RATE_LIMIT_MAX_REQUESTS = 120
 _rate_limit_buckets: Dict[str, list[float]] = {}
+_memory_ticker_configs: Dict[str, Dict[str, Any]] = {}
 
 
 def _symbol(raw: str) -> str:
@@ -162,6 +163,37 @@ class TickerConfigBody(BaseModel):
     """Request body for PUT /api/tickers/{symbol}/config."""
     metrics: MetricToggles = Field(default_factory=MetricToggles)
     risk: RiskConfig = Field(default_factory=RiskConfig)
+    price_providers: List[str] = Field(default_factory=lambda: ["yfinance"])
+
+
+def _normalise_price_providers(providers: Optional[List[str]]) -> List[str]:
+    """Keep provider lists deduped and limited to runtime-supported names."""
+    supported = set(default_provider_order())
+    normalised: List[str] = []
+    for provider in providers or ["yfinance"]:
+        key = str(provider).strip().lower()
+        if key in supported and key not in normalised:
+            normalised.append(key)
+    return normalised or ["yfinance"]
+
+
+async def _get_ticker_config_doc(sym: str) -> Optional[Dict[str, Any]]:
+    """Read ticker config from MongoDB or demo-mode memory."""
+    if db is None:
+        return _memory_ticker_configs.get(sym)
+    return await db.ticker_configs.find_one({"symbol": sym}, {"_id": 0})
+
+
+async def _save_ticker_config(sym: str, config: Dict[str, Any]) -> None:
+    """Persist ticker config to MongoDB or demo-mode memory."""
+    if db is None:
+        _memory_ticker_configs[sym] = config
+        return
+    await db.ticker_configs.update_one(
+        {"symbol": sym},
+        {"$set": config},
+        upsert=True,
+    )
 
 
 class AutomationSettingsBody(BaseModel):
@@ -520,22 +552,28 @@ async def update_ticker_config(symbol: str, body: TickerConfigBody = Body(...)):
 
     metrics_dict = body.metrics.model_dump()
     risk_dict = body.risk.model_dump()
+    price_providers = _normalise_price_providers(body.price_providers)
 
-    await db.ticker_configs.update_one(
-        {"symbol": sym},
-        {
-            "$set": {
-                "symbol": sym,
-                "metrics": metrics_dict,
-                "risk": risk_dict,
-                "updated_at": datetime.utcnow(),
-            }
-        },
-        upsert=True,
-    )
-    sched.ticker_configs[sym] = {"metrics": metrics_dict, "risk": risk_dict}
+    config = {
+        "symbol": sym,
+        "metrics": metrics_dict,
+        "risk": risk_dict,
+        "price_providers": price_providers,
+        "updated_at": datetime.utcnow(),
+    }
+    await _save_ticker_config(sym, config)
+    sched.ticker_configs[sym] = {
+        "metrics": metrics_dict,
+        "risk": risk_dict,
+        "price_providers": price_providers,
+    }
 
-    return {"symbol": sym, "metrics": metrics_dict, "risk": risk_dict}
+    return {
+        "symbol": sym,
+        "metrics": metrics_dict,
+        "risk": risk_dict,
+        "price_providers": price_providers,
+    }
 
 
 @api_router.get("/tickers/{symbol}/config")
@@ -544,12 +582,13 @@ async def get_ticker_config(symbol: str):
     sym = _symbol(symbol)
 
     # Exclude _id — ObjectId is not JSON-serialisable
-    doc = await db.ticker_configs.find_one({"symbol": sym}, {"_id": 0})
+    doc = await _get_ticker_config_doc(sym)
     if doc:
         return {
             "symbol": sym,
             "metrics": doc.get("metrics", MetricToggles().model_dump()),
             "risk": doc.get("risk", RiskConfig().model_dump()),
+            "price_providers": _normalise_price_providers(doc.get("price_providers")),
             "updated_at": doc.get("updated_at"),
         }
 
@@ -558,6 +597,7 @@ async def get_ticker_config(symbol: str):
         "symbol": sym,
         "metrics": MetricToggles().model_dump(),
         "risk": RiskConfig().model_dump(),
+        "price_providers": ["yfinance"],
         "updated_at": None,
     }
 

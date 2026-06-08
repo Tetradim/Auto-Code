@@ -184,19 +184,6 @@ PROVIDER_CATALOG: List[ProviderInfo] = [
         intraday=False,
         eod=True,
     ),
-    ProviderInfo(
-        key="alpaca",
-        label="Alpaca Market Data",
-        quote=True,
-        ohlcv=True,
-        requires_key=True,
-        env_var="ALPACA_API_KEY",
-        free_tier="Account credentials required; plan controls market-data access",
-        notes="Market data only here; never mix with broker/order APIs in Edge provider code.",
-        enabled=False,
-        intraday=True,
-        eod=True,
-    ),
 ]
 
 

@@ -185,7 +185,7 @@ class PositionTracker:
         elif decision in (Decision.EMERGENCY_EXIT, Decision.STOP_BUYING):
             pnl = ps.get("pnl", 0.0)
             if self.decision_engine and ps.get("has_position"):
-                self.decision_engine.record_trade_result(symbol, pnl)
+                self.decision_engine.record_trade_result_legacy(symbol, pnl)
                 logger.info(
                     "record_trade_result(%s, %.2f) via on_decision", symbol, pnl
                 )
@@ -362,7 +362,7 @@ class PositionTracker:
         if now_closed and was_open:
             final_pnl = float(doc.get("realized_pnl", doc.get("pnl", pnl)))
             if self.decision_engine:
-                self.decision_engine.record_trade_result(symbol, final_pnl)
+                self.decision_engine.record_trade_result_legacy(symbol, final_pnl)
                 logger.info(
                     "record_trade_result(%s, %.2f) via change stream (status=%s)",
                     symbol, final_pnl, status,
@@ -462,7 +462,7 @@ class PositionTracker:
             return
             
         # Record the trade result with real fill data
-        self.decision_engine.record_trade_result(
+        await self.decision_engine.record_trade_result(
             symbol=cmd.symbol,
             fill_price=cmd.fill_price,
             quantity=cmd.quantity,

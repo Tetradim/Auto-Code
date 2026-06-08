@@ -3,9 +3,8 @@ import { X, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import BacktestResultsChart from './BacktestResultsChart';
 
-// Default providers - alpaca first for real-time, yfinance as fallback
-const DEFAULT_PROVIDERS = ['alpaca', 'yfinance'];
-const ALL_PROVIDERS = ['alpaca', 'polygon', 'finnhub', 'yfinance'];
+const DEFAULT_PROVIDERS = ['yfinance'];
+const ALL_PROVIDERS = ['yfinance', 'finnhub', 'polygon', 'alpha_vantage', 'twelve_data'];
 
 interface TickerConfigModalProps {
   symbol: string;

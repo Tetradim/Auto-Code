@@ -23,7 +23,7 @@ import asyncio
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from atr import ATRCalculator
 from automation import AutomationAction, AutomationController, HandoffCommand
@@ -117,21 +117,80 @@ class EvaluationScheduler:
 
 
     async def _get_daily_pnl(self) -> float:
-        """Calculate daily PnL percentage. Returns 0.0 if no positions or no trades."""
-        import time
-        
+        """Calculate daily realized PnL percentage from Pulse or local state."""
         now = time.time()
-        # Cache for 60 seconds
         if self._daily_pnl_cache is not None and self._daily_pnl_timestamp:
             if now - self._daily_pnl_timestamp < 60:
                 return self._daily_pnl_cache
-        
-        # In production, this would query the database for today's realized PnL
-        # For now, return 0.0 (no daily loss detected)
-        self._daily_pnl_cache = 0.0
+
+        daily_pnl = 0.0
+
+        if getattr(self.pulse, "pulse_available", False):
+            try:
+                account = await self.pulse.get_account_status()
+                extracted = self._extract_daily_pnl_pct(account)
+                if extracted is not None:
+                    daily_pnl = extracted
+            except Exception as exc:
+                logger.debug("Could not read daily PnL from Pulse account status: %s", exc)
+
+        if daily_pnl == 0.0:
+            extracted = self._extract_daily_pnl_pct(
+                getattr(self.decisions, "account_state", None)
+            )
+            if extracted is not None:
+                daily_pnl = extracted
+
+        if daily_pnl == 0.0 and hasattr(self.decisions, "get_daily_pnl_pct"):
+            try:
+                daily_pnl = float(self.decisions.get_daily_pnl_pct())
+            except Exception as exc:
+                logger.debug("Could not read daily PnL from DecisionEngine: %s", exc)
+
+        self._daily_pnl_cache = daily_pnl
         self._daily_pnl_timestamp = now
-        
         return self._daily_pnl_cache
+
+    def _extract_daily_pnl_pct(self, account: Optional[Dict[str, Any]]) -> Optional[float]:
+        """Extract daily PnL percentage from account-style payloads."""
+        if not isinstance(account, dict):
+            return None
+
+        for key in ("daily_pnl_pct", "daily_pnl_percent", "day_pnl_pct", "pnl_pct"):
+            value = self._float_or_none(account.get(key))
+            if value is not None:
+                return value
+
+        pnl = self._float_or_none(
+            account.get("daily_pnl")
+            or account.get("day_pnl")
+            or account.get("realized_pnl_today")
+            or account.get("todays_pnl")
+        )
+        if pnl is None:
+            return None
+
+        base = self._float_or_none(
+            account.get("start_of_day_equity")
+            or account.get("starting_equity")
+            or account.get("previous_close_equity")
+            or account.get("initial_equity")
+            or account.get("equity")
+            or account.get("total_equity")
+        )
+        if base is None or base <= 0:
+            return None
+
+        return (pnl / base) * 100.0
+
+    @staticmethod
+    def _float_or_none(value: Any) -> Optional[float]:
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Evaluation
@@ -169,11 +228,17 @@ class EvaluationScheduler:
         try:
             # ── 1. Price + volume ────────────────────────────────────────────
             # Use pre-fetched price from WS update if available
+            ticker_cfg = self.ticker_configs.get(symbol, {})
+            provider_order = ticker_cfg.get("price_providers")
+
             if is_ws_update and current_price is not None:
                 price = current_price
                 volume = current_volume or 0
             else:
-                result = await self.prices.get_price_with_volume(symbol)
+                result = await self.prices.get_price_with_volume(
+                    symbol,
+                    provider_order=provider_order,
+                )
                 if not result:
                     logger.warning("Could not fetch data for %s", symbol)
                     return
@@ -189,7 +254,10 @@ class EvaluationScheduler:
                 )
 
             # ── 3. ATR ───────────────────────────────────────────────────────
-            ohlcv_data = await self.prices.get_ohlcv(symbol)
+            ohlcv_data = await self.prices.get_ohlcv(
+                symbol,
+                provider_order=provider_order,
+            )
             atr = 0.0
             if ohlcv_data is not None and not ohlcv_data.empty:
                 latest = ohlcv_data.iloc[-1]
@@ -300,7 +368,6 @@ class EvaluationScheduler:
             pos = self.position_tracker.get(symbol)
 
             # ── 7. Decision — all risk parameters populated ──────────────────
-            ticker_cfg = self.ticker_configs.get(symbol, {})
             risk_cfg = ticker_cfg.get("risk", {})
             
             # Use real position data from DecisionEngine (synced from Pulse)
@@ -333,8 +400,9 @@ class EvaluationScheduler:
 
             # ── 8. Send decision to Pulse when autonomous handoff allows it ───
             confidence = min(abs(signal_strength) / 10.0, 1.0)
+            handoff_sent = False
             if decision == Decision.BUY:
-                await self._handoff_to_pulse(
+                handoff_sent = await self._handoff_to_pulse(
                     symbol=symbol,
                     action=AutomationAction.BUY,
                     confidence=confidence,
@@ -344,7 +412,7 @@ class EvaluationScheduler:
                 )
 
             elif decision == Decision.STOP_BUYING:
-                await self._handoff_to_pulse(
+                handoff_sent = await self._handoff_to_pulse(
                     symbol=symbol,
                     action=AutomationAction.STOP_BUYING,
                     confidence=confidence,
@@ -358,7 +426,7 @@ class EvaluationScheduler:
                     min(2.0, max(0.5, (atr / price) * 100 * 2))
                     if price > 0 else 1.5
                 )
-                await self._handoff_to_pulse(
+                handoff_sent = await self._handoff_to_pulse(
                     symbol=symbol,
                     action=AutomationAction.TRAILING_STOP,
                     confidence=confidence,
@@ -370,7 +438,7 @@ class EvaluationScheduler:
                 )
 
             elif decision == Decision.TIGHTEN_TRAILING_STOP:
-                await self._handoff_to_pulse(
+                handoff_sent = await self._handoff_to_pulse(
                     symbol=symbol,
                     action=AutomationAction.TIGHTEN_TRAILING_STOP,
                     confidence=confidence,
@@ -382,7 +450,7 @@ class EvaluationScheduler:
                 )
 
             elif decision == Decision.TIGHTEN_STOP:
-                await self._handoff_to_pulse(
+                handoff_sent = await self._handoff_to_pulse(
                     symbol=symbol,
                     action=AutomationAction.TIGHTEN_STOP,
                     confidence=confidence,
@@ -393,7 +461,7 @@ class EvaluationScheduler:
                 )
 
             elif decision == Decision.EMERGENCY_EXIT:
-                await self._handoff_to_pulse(
+                handoff_sent = await self._handoff_to_pulse(
                     symbol=symbol,
                     action=AutomationAction.EMERGENCY_EXIT,
                     confidence=max(confidence, 0.95),
@@ -403,9 +471,9 @@ class EvaluationScheduler:
                 )
 
             # ── 9a. Notify PositionTracker of decision taken ─────────────────
-            # Keeps optimistic state coherent while waiting for change stream
-            # confirmation; also finalises trade in SELF_SOVEREIGN mode.
-            self.position_tracker.on_decision(symbol, decision, entry_price=price)
+            # Only mutate local position state after Pulse accepts the handoff.
+            if handoff_sent:
+                self.position_tracker.on_decision(symbol, decision, entry_price=price)
 
             # ── 9. Correlation tracking ──────────────────────────────────────
             if decision == Decision.BUY:

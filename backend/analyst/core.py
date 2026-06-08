@@ -234,7 +234,7 @@ class SentinelEdge:
                 elif action == "SELL" and pt:
                     pnl = float(data.get("realized_pnl", data.get("pnl", 0.0)))
                     if self._scheduler and self._scheduler.decisions:
-                        self._scheduler.decisions.record_trade_result(symbol, pnl)
+                        await self._scheduler.decisions.record_trade_result(symbol, pnl)
                         logger.info(
                             "record_trade_result(%s, %.2f) via WS ORDER_FILLED (SELL)",
                             symbol, pnl,
@@ -247,7 +247,7 @@ class SentinelEdge:
                 pnl = float(data.get("realized_pnl", data.get("pnl", 0.0)))
 
                 if self._scheduler and self._scheduler.decisions:
-                    self._scheduler.decisions.record_trade_result(symbol, pnl)
+                    await self._scheduler.decisions.record_trade_result(symbol, pnl)
                     logger.info(
                         "record_trade_result(%s, %.2f) via WS POSITION_CLOSED",
                         symbol, pnl,
