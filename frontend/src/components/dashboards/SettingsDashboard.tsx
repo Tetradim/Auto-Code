@@ -105,16 +105,6 @@ const CONFIG_SECTIONS: ConfigSection[] = [
     ]
   },
   {
-    name: 'Paper Trading',
-    key: 'paper',
-    fields: [
-      { key: 'initial_cash', label: 'Initial Cash ($)', type: 'number', value: 100000, description: 'Starting cash for paper trading' },
-      { key: 'slippage_pct', label: 'Slippage (%)', type: 'number', value: 0.05, description: 'Simulated slippage per trade' },
-      { key: 'commission_pct', label: 'Commission (%)', type: 'number', value: 0.1, description: 'Simulated commission per trade' },
-      { key: 'latency_ms', label: 'Latency (ms)', type: 'number', value: 100, description: 'Simulated order execution latency' },
-    ]
-  },
-  {
     name: 'Rate Limiting',
     key: 'rate_limit',
     fields: [

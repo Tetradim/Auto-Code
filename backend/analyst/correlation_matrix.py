@@ -198,31 +198,7 @@ class CorrelationMatrix:
         return isolated
 
 
-# Demo correlation matrix
-def create_demo_matrix() -> CorrelationMatrix:
-    """Create demo correlation"""
-    matrix = CorrelationMatrix()
-    
-    # Simulated returns
-    returns = {
-        "AAPL": [0.01, -0.02, 0.015, -0.01, 0.02],
-        "MSFT": [0.012, -0.018, 0.014, -0.012, 0.019],
-        "NVDA": [0.025, -0.035, 0.028, -0.022, 0.031],
-        "AMD": [0.022, -0.032, 0.026, -0.021, 0.029],
-        "GOOGL": [0.008, -0.012, 0.009, -0.008, 0.011],
-        "SPY": [0.005, -0.006, 0.006, -0.005, 0.007],
-        "TSLA": [0.018, -0.025, 0.021, -0.015, 0.022],
-    }
-    
-    for symbol, ret in returns.items():
-        matrix.add_returns(symbol, ret)
-    
-    matrix.compute()
-    return matrix
-
-
-# Singleton
-_correlation_matrix = create_demo_matrix()
+_correlation_matrix = CorrelationMatrix()
 
 
 def get_correlation_matrix() -> CorrelationMatrix:

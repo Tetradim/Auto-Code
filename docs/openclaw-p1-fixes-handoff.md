@@ -27,4 +27,4 @@ Branch: OC-Iteration
 - `python -m py_compile backend\server.py backend\scheduler.py backend\engine.py backend\position_tracker.py backend\analyst\core.py backend\price_fetcher.py backend\providers\catalog.py`
 - `npm.cmd run build` from `frontend`
 
-All three commands passed. The frontend build still reports existing Vite warnings about a mixed static/dynamic `mockData.ts` import and chunk size over 500 kB.
+All three commands passed. Later runtime mock/demo cleanup removed the old frontend mock-data build warning; see `docs/openclaw-runtime-mock-demo-cleanup-handoff.md`.

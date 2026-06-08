@@ -695,14 +695,15 @@ This software is for educational purposes. Past backtest results do not guarante
 
 ---
 
-## 🚀 Quick Start — Paper Trading Mode
+## 🚀 Quick Start — Standalone Local Mode
 
-No API keys required! Start paper trading immediately:
+No paid market-data keys or Pulse instance are required for local Edge analysis. Start Edge in standalone mode:
 
 ```bash
 # Start the backend
 cd backend
 pip install -r requirements.txt
+set DEMO_MODE=true
 python -m uvicorn server:app --reload
 
 # Start the frontend
@@ -711,42 +712,39 @@ npm install
 npm start
 ```
 
-### Paper Trading Dashboard
+### Advisor Health
 
-Access the **Paper Trading** tab in the frontend to:
-- Place mock orders (market/limit/stop)
-- Track positions and P&L
-- Manage pending orders
-- View account equity and buying power
+Access the **Advisor Health** tab in the frontend to:
+- Check live Edge scheduler state
+- Check Pulse link and circuit state
+- Review provider health
+- Review autonomous handoff status
 
 ### Portfolio Analytics
 
 Access the **Portfolio** tab to see:
-- Portfolio allocation pie chart
-- Position P&L bar chart
-- Real-time metrics (VaR, diversification score)
-- Position table with unrealized/realized P&L
+- Live Pulse equity and buying power
+- Live positions reported by Pulse
+- Realized and unrealized P&L when Pulse provides those fields
 
 ### Settings
 
 Configure behavior in the **Settings** tab:
-- Data source (mock/yfinance/binance)
+- Market data provider order
 - Risk parameters (position size, stop loss, take profit)
-- Paper trading settings (initial cash, slippage, commission)
 - Rate limiting configuration
 
 ---
 
 ## 📊 New Features Summary
 
-### Backend (`backend/data_feeder.py`)
+### Backend (`backend/price_fetcher.py`)
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-Source Data** | MOCK, YFINANCE, BINANCE data providers |
-| **Paper Broker** | Simulated trading with realistic fills |
-| **Rate Limiter** | Token bucket + exponential backoff |
-| **Portfolio Analytics** | VaR, position tracking, P&L |
+| **Market Data** | Live provider fallback order with yfinance default |
+| **Provider Health** | Runtime provider success/failure tracking |
+| **Shared OHLCV Cache** | One cached 1m OHLCV fetch path per symbol |
 
 ### Backend (`backend/signals_enhanced.py`)
 
@@ -770,17 +768,16 @@ Configure behavior in the **Settings** tab:
 
 | Dashboard | Features |
 |-----------|----------|
-| `PaperTrading.tsx` | Order form, positions, account |
-| `PortfolioAnalytics.tsx` | Charts, metrics, position table |
+| `AdvisorHealth.tsx` | Live Edge/Pulse/provider status |
+| `PortfolioAnalytics.tsx` | Live Pulse account and positions |
 | `SettingsDashboard.tsx` | Config UI, localStorage persistence |
 
 ### API Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /api/paper/order` | Submit paper order |
-| `GET /api/paper/account` | Get account state |
-| `GET /api/paper/portfolio` | Portfolio analytics |
+| `GET /api/pulse/account` | Live Pulse account state |
+| `GET /api/pulse/status` | Pulse link and circuit state |
 | `POST /api/backtest/run` | Run enhanced backtest |
 | `GET /api/strategies` | List available strategies |
 | `GET /api/strategies/{name}` | Strategy details |

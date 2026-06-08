@@ -354,7 +354,7 @@ class ObservationReplay:
             key=lambda x: x.get('timestamp', '')
         )
     
-    def add_fake_fill(
+    def add_replay_fill(
         self,
         symbol: str,
         timestamp: datetime,

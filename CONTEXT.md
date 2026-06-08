@@ -18,7 +18,7 @@
 | `signals_enhanced.py` | **SignalEngineEnhanced** - pattern detection, ConfidenceScore |
 | `pulse_client.py` | HTTP client to Pulse API |
 | `alert_handler.py` | Webhook receiver for Alertmanager → Pulse actions |
-| `data_feeder.py` | OHLCV price data pipeline |
+| `price_fetcher.py` | Live OHLCV/quote fetcher and provider fallback pipeline |
 
 ### Frontend (TypeScript Vite+React)
 - `frontend/` - Standard Vite+React+TypeScript app

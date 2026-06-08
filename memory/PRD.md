@@ -29,10 +29,9 @@ Broker Health, P&L Tracking, and Market Coverage.
 │   ├── vite.config.ts    # loadEnv + process.env.REACT_APP_BACKEND_URL define
 │   ├── index.html        # Clean entry
 │   └── src/
-│       ├── App.tsx           # 4-tab shell + mock mode toggle
-│       ├── lib/api.ts        # Native fetch client (NO axios), getCorrelation()
-│       ├── lib/mockData.ts   # Mock price simulator (MOCK_BASE_PRICES + drift)
-│       ├── store/useStore.ts # Zustand: tickers, markets, stats, mockMode, correlationAlerts
+│       ├── App.tsx           # live-data tab shell
+│       ├── lib/api.ts        # Native fetch client for backend API calls
+│       ├── store/useStore.ts # Zustand: tickers, markets, stats, correlationAlerts
 │       ├── types/index.ts    # TickerData with last_decision, confidence, last_updated
 │       └── components/
 │           ├── cards/
@@ -41,8 +40,8 @@ Broker Health, P&L Tracking, and Market Coverage.
 │           │   └── TickerCard.tsx  # Per-ticker card with SVG sparkline, data-testid
 │           └── dashboards/
 │               ├── TradingOverview.tsx  # Tab 1: tickers + breadth panel + ORB chart
-│               ├── BrokerHealth.tsx     # Tab 2: circuit breaker status
-│               ├── PnLTracking.tsx      # Tab 3: P&L charts + table
+│               ├── AdvisorHealth.tsx    # Tab 2: live Edge/Pulse/provider status
+│               ├── PnLTracking.tsx      # Tab 3: live Pulse account P&L
 │               └── MarketCoverage.tsx   # Tab 4: live global markets (real API data)
 ```
 
@@ -77,14 +76,14 @@ Broker Health, P&L Tracking, and Market Coverage.
 - **GET /api/correlation**: breadth (bullish/bearish/neutral %) + recent clusters ✅
 - **MongoDB ORB Persistence**: `_persist_orb()` saves per-symbol-per-day, `_load_orb_from_db()` restores on startup ✅
 - **Auto Trailing Stop** (`Decision.TIGHTEN_TRAILING_STOP`): triggers at signal≥7.0 + pnl_pct>5.0 → 0.5% ✅
-- **Mock Data Mode** toggle in header (FlaskConical icon): simulates realistic drifting prices ✅
+- **Runtime mock data removed**: dashboard now polls live backend data only ✅
 - **Market Breadth panel** in TradingOverview: bull/bear/neutral % bar + cluster alert display ✅
 - TypeScript `TickerData` type updated with `last_decision`, `confidence`, `last_updated` ✅
 - P1 test suite: 39 new tests (100% pass); total 79/79 tests ✅
 
 ### Session 4 (2026-04-09) — Decision Feed + Ticker Management
-- **Live Decision Feed** (`DecisionFeed.tsx`): scrollable log panel showing non-HOLD decisions (BUY/STOP/EXIT/TIGHTEN/TRAIL) with color-coded badges, signal bars, prices, time-ago; AnimatePresence transitions; mock mode auto-populates with simulated decisions ✅
-- **Add/Remove Tickers**: input + Add button above ticker grid; red trash icon on every TickerCard; input validation (1–6 letters only); works in both live and mock mode; empty state shown when all tickers removed ✅
+- **Live Decision Feed** (`DecisionFeed.tsx`): scrollable log panel showing non-HOLD decisions (BUY/STOP/EXIT/TIGHTEN/TRAIL) with color-coded badges, signal bars, prices, time-ago; AnimatePresence transitions ✅
+- **Add/Remove Tickers**: input + Add button above ticker grid; red trash icon on every TickerCard; input validation (1–6 letters only); uses live backend add/remove routes; empty state shown when all tickers removed ✅
 - **Backend `/api/decisions`**: returns up to 50 most recent non-HOLD decisions (newest first) ✅
 - Total test coverage: 95/95 (16 new + 79 regression) ✅
 
@@ -151,17 +150,17 @@ Broker Health, P&L Tracking, and Market Coverage.
 - Correlation Detection Engine ✅  
 - Auto Trailing Stop Logic ✅
 - MongoDB ORB Persistence ✅
-- Mock Data Mode ✅
+- Runtime mock data removed ✅
 
 ### P1 — Remaining
 - **Live Correlation-triggered Pulse override**: correlation engine detects BEARISH cluster → auto-call `pulse.stop_buying()` for all symbols in cluster (currently only logs)
 - **Telegram alert integration**: when cluster detected, send Telegram message
 
-### P2 — Medium Priority
-- **Volume Anomaly Z-score**: statistical volume spike detection in signals.py
-- **P&L data from Pulse API**: replace static mock data in PnLTracking.tsx with live Pulse API data
-- **Broker Health live data**: replace static BrokerHealth mock data with live circuit breaker state
-- **Add/Remove ticker UI**: allow adding tickers from the dashboard (input + button)
+### P2 — Done ✅
+- **Volume Anomaly Z-score**: statistical volume spike detection in signals.py ✅
+- **P&L data from Pulse API**: PnLTracking.tsx now uses live Pulse account data and no generated values ✅
+- **Advisor/provider health live data**: AdvisorHealth.tsx uses live Edge/Pulse/provider status and replaces the static broker panel ✅
+- **Add/Remove ticker UI**: dashboard input/buttons use live backend routes ✅
 
 ### P3 — Backlog
 - Real-time WebSocket streaming for ticker prices (eliminate polling)
@@ -170,6 +169,6 @@ Broker Health, P&L Tracking, and Market Coverage.
 - Grafana provisioning documentation in README
 
 ## Known Constraints
-- yfinance rate-limits during off-market hours → signal_strength = 0.0 → use Mock Mode to demo UI
+- yfinance rate-limits during off-market hours → signal_strength = 0.0. Use the upcoming controlled scenario engine for deterministic pattern tests rather than runtime mock UI data.
 - Pulse API defaults to localhost:8002 — requires PULSE_API_URL and PULSE_API_KEY env vars for real trades
 - Prometheus /metrics at root path, not proxied by K8s ingress — internal scraping only

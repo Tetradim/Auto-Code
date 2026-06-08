@@ -1,56 +1,63 @@
-/**
- * Portfolio Analytics Dashboard
- * Shows portfolio composition, risk metrics, and rebalancing suggestions
- */
 import React, { useEffect, useState } from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { Wallet, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, BarChart2, Scale } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Scale, Wallet } from 'lucide-react';
 
-interface Position {
+interface PulsePosition {
   symbol: string;
-  quantity: number;
-  avg_cost: number;
-  market_value: number;
-  weight: number;
-  unrealized_pnl: number;
-  realized_pnl: number;
+  quantity?: number;
+  qty?: number;
+  market_value?: number;
+  unrealized_pnl?: number;
+  realized_pnl?: number;
 }
 
-interface PortfolioMetrics {
-  total_equity: number;
-  cash: number;
-  cash_pct: number;
-  buying_power: number;
-  positions: Position[];
-  position_count: number;
+interface PulseAccount {
+  status?: string;
+  error?: string;
+  equity?: number;
+  total_equity?: number;
+  buying_power?: number;
+  available_balance?: number;
+  positions?: PulsePosition[];
 }
 
-const COLORS = ['#4ade80', '#22d3ee', '#f472b6', '#fbbf24', '#a78bfa', '#fb923c'];
+function numberOrZero(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function currency(value: number): string {
+  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
 
 export function PortfolioAnalytics() {
-  const [metrics, setMetrics] = useState<PortfolioMetrics | null>(null);
+  const [account, setAccount] = useState<PulseAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPortfolio();
-    const interval = setInterval(fetchPortfolio, 10000);
-    return () => clearInterval(interval);
+    const interval = window.setInterval(fetchPortfolio, 10000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const fetchPortfolio = async () => {
     try {
-      const response = await fetch('/api/paper/portfolio');
-      if (response.ok) {
-        const data = await response.json();
-        setMetrics(data);
+      const response = await fetch('/api/pulse/account');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.status === 'unavailable' || data.error) {
+        setAccount(null);
+        setError('Pulse portfolio data unavailable');
+      } else {
+        setAccount(data);
         setError(null);
       }
-    } catch (err) {
-      // Silently fail - paper trading may not be active
-      setError('Paper trading not connected');
+    } catch {
+      setAccount(null);
+      setError('Pulse portfolio data unavailable');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   if (loading) {
@@ -61,7 +68,7 @@ export function PortfolioAnalytics() {
     );
   }
 
-  if (error || !metrics) {
+  if (error || !account) {
     return (
       <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
         <div className="flex items-center gap-3 text-gray-400">
@@ -69,127 +76,44 @@ export function PortfolioAnalytics() {
           <span>Portfolio Analytics</span>
         </div>
         <p className="text-gray-500 mt-4 text-sm">
-          Paper trading session not active. Start a paper trading session to see portfolio analytics.
+          Live portfolio analytics require Sentinel Pulse account data. No generated portfolio data is displayed.
         </p>
       </div>
     );
   }
 
-  const positionChartData = metrics.positions.map((p: Position) => ({
-    name: p.symbol,
-    value: p.market_value,
-    weight: p.weight
-  }));
-
-  const pnlData = metrics.positions.map((p: Position) => ({
-    name: p.symbol,
-    unrealized: p.unrealized_pnl,
-    realized: p.realized_pnl
-  }));
+  const equity = numberOrZero(account.total_equity ?? account.equity);
+  const buyingPower = numberOrZero(account.buying_power ?? account.available_balance);
+  const positions = account.positions || [];
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
           <div className="flex items-center gap-2 text-gray-400 mb-2">
             <Wallet className="w-4 h-4" />
             <span className="text-sm">Total Equity</span>
           </div>
-          <p className="text-2xl font-bold text-white">${metrics.total_equity.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-white">{currency(equity)}</p>
         </div>
-        
+
         <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
           <div className="flex items-center gap-2 text-gray-400 mb-2">
             <Scale className="w-4 h-4" />
-            <span className="text-sm">Cash</span>
+            <span className="text-sm">Buying Power</span>
           </div>
-          <p className="text-2xl font-bold text-white">${metrics.cash.toLocaleString()}</p>
-          <p className="text-xs text-gray-500">{metrics.cash_pct.toFixed(1)}% of portfolio</p>
+          <p className="text-2xl font-bold text-white">{currency(buyingPower)}</p>
         </div>
-        
-        <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <TrendingUp className="w-4 h-4" />
-            <span className="text-sm">Positions</span>
-          </div>
-          <p className="text-2xl font-bold text-white">{metrics.position_count}</p>
-          <p className="text-xs text-gray-500">${metrics.buying_power.toLocaleString()} buying power</p>
-        </div>
-        
+
         <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
           <div className="flex items-center gap-2 text-gray-400 mb-2">
             <AlertTriangle className="w-4 h-4" />
-            <span className="text-sm">Diversification</span>
+            <span className="text-sm">Positions</span>
           </div>
-          <p className={`text-2xl font-bold ${metrics.position_count > 3 ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {metrics.position_count > 5 ? 'Good' : metrics.position_count > 2 ? 'Fair' : 'Low'}
-          </p>
-          <p className="text-xs text-gray-500">Min 5 recommended</p>
+          <p className="text-2xl font-bold text-white">{positions.length}</p>
         </div>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Allocation Pie Chart */}
-        <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-          <h3 className="text-lg font-semibold text-white mb-4">Portfolio Allocation</h3>
-          {positionChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={positionChartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {positionChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px' }}
-                  formatter={(value: any) => `$${(value as number)?.toLocaleString()}`}
-                />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-64 flex items-center justify-center text-gray-500">
-              No positions open
-            </div>
-          )}
-        </div>
-
-        {/* PnL Bar Chart */}
-        <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-          <h3 className="text-lg font-semibold text-white mb-4">Position P&L</h3>
-          {pnlData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={pnlData}>
-                <XAxis dataKey="name" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px' }}
-                  formatter={(value: any) => `$${(value as number)?.toFixed(2)}`}
-                />
-                <Legend />
-                <Bar dataKey="unrealized" name="Unrealized" fill="#4ade80" />
-                <Bar dataKey="realized" name="Realized" fill="#22d3ee" />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-64 flex items-center justify-center text-gray-500">
-              No positions for P&L
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Positions Table */}
       <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-4">Open Positions</h3>
         <div className="overflow-x-auto">
@@ -198,33 +122,34 @@ export function PortfolioAnalytics() {
               <tr className="text-left text-gray-400 text-sm border-b border-gray-700">
                 <th className="pb-3 font-medium">Symbol</th>
                 <th className="pb-3 font-medium">Quantity</th>
-                <th className="pb-3 font-medium">Avg Cost</th>
                 <th className="pb-3 font-medium">Market Value</th>
-                <th className="pb-3 font-medium">Weight</th>
                 <th className="pb-3 font-medium">Unrealized P&L</th>
                 <th className="pb-3 font-medium">Realized P&L</th>
               </tr>
             </thead>
             <tbody>
-              {metrics.positions.map((pos) => (
-                <tr key={pos.symbol} className="border-b border-gray-700/50 text-sm">
-                  <td className="py-3 text-white font-medium">{pos.symbol}</td>
-                  <td className="py-3 text-gray-300">{pos.quantity.toFixed(2)}</td>
-                  <td className="py-3 text-gray-300">${pos.avg_cost.toFixed(2)}</td>
-                  <td className="py-3 text-gray-300">${pos.market_value.toFixed(2)}</td>
-                  <td className="py-3 text-gray-300">{pos.weight.toFixed(1)}%</td>
-                  <td className={`py-3 ${pos.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    ${pos.unrealized_pnl.toFixed(2)}
-                  </td>
-                  <td className={`py-3 ${pos.realized_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    ${pos.realized_pnl.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-              {metrics.positions.length === 0 && (
+              {positions.map((position) => {
+                const quantity = numberOrZero(position.quantity ?? position.qty);
+                const unrealized = numberOrZero(position.unrealized_pnl);
+                const realized = numberOrZero(position.realized_pnl);
+                return (
+                  <tr key={position.symbol} className="border-b border-gray-700/50 text-sm">
+                    <td className="py-3 text-white font-medium">{position.symbol}</td>
+                    <td className="py-3 text-gray-300">{quantity.toFixed(2)}</td>
+                    <td className="py-3 text-gray-300">{currency(numberOrZero(position.market_value))}</td>
+                    <td className={`py-3 ${unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {currency(unrealized)}
+                    </td>
+                    <td className={`py-3 ${realized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {currency(realized)}
+                    </td>
+                  </tr>
+                );
+              })}
+              {positions.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-gray-500">
-                    No open positions
+                  <td colSpan={5} className="py-8 text-center text-gray-500">
+                    No positions reported by Pulse
                   </td>
                 </tr>
               )}

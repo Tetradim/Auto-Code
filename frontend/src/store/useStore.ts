@@ -42,10 +42,6 @@ interface EdgeStore {
   connected: boolean;
   setConnected: (connected: boolean) => void;
 
-  // Mock mode toggle
-  mockMode: boolean;
-  setMockMode: (enabled: boolean) => void;
-
   // Greek Analysis Toggles (optional analysis)
   greeksEnabled: {
     delta: boolean;    // Delta Direction & Probability
@@ -142,10 +138,6 @@ export const useStore = create<EdgeStore>((set) => ({
   // Connection
   connected: false,
   setConnected: (connected) => set({ connected }),
-
-  // Mock mode
-  mockMode: false,
-  setMockMode: (mockMode) => set({ mockMode }),
 
   // Greek Analysis Toggles (optional analysis - can exclude unused Greeks for performance)
   greeksEnabled: {

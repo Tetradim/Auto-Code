@@ -1,163 +1,122 @@
-import React, { useState } from 'react';
-import { DollarSign, TrendingUp, TrendingDown, Percent } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { DollarSign, TrendingDown, TrendingUp, Percent, RefreshCw } from 'lucide-react';
 import { MetricCard } from '../cards/MetricCard';
-import { ChartCard } from '../cards/ChartCard';
-import { motion } from 'framer-motion';
+
+interface PulseAccount {
+  status?: string;
+  equity?: number;
+  total_equity?: number;
+  buying_power?: number;
+  available_balance?: number;
+  daily_pnl?: number;
+  day_pnl?: number;
+  realized_pnl_today?: number;
+  daily_pnl_pct?: number;
+  day_pnl_pct?: number;
+  unrealized_pnl?: number;
+  drawdown_pct?: number;
+}
+
+function numberOrZero(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function currency(value: number): string {
+  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
 
 export const PnLTracking: React.FC = () => {
-  const [pnlHistory] = useState([
-    { timestamp: '09:30', value: 0 },
-    { timestamp: '10:00', value: 125 },
-    { timestamp: '10:30', value: 230 },
-    { timestamp: '11:00', value: 180 },
-    { timestamp: '11:30', value: 310 },
-    { timestamp: '12:00', value: 425 },
-    { timestamp: '12:30', value: 380 },
-    { timestamp: '13:00', value: 490 },
-  ]);
+  const [account, setAccount] = useState<PulseAccount | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [drawdownHistory] = useState([
-    { timestamp: '09:30', value: 0 },
-    { timestamp: '10:00', value: -2.5 },
-    { timestamp: '10:30', value: -1.8 },
-    { timestamp: '11:00', value: -3.2 },
-    { timestamp: '11:30', value: -1.5 },
-    { timestamp: '12:00', value: -0.8 },
-    { timestamp: '12:30', value: -2.1 },
-    { timestamp: '13:00', value: -1.2 },
-  ]);
+  useEffect(() => {
+    loadAccount();
+    const interval = window.setInterval(loadAccount, 10000);
+    return () => window.clearInterval(interval);
+  }, []);
 
-  const [tickerPnL] = useState([
-    { symbol: 'SPY', realized: 245.50, unrealized: 32.10, totalTrades: 12 },
-    { symbol: 'QQQ', realized: 189.30, unrealized: -15.25, totalTrades: 8 },
-    { symbol: 'NVDA', realized: 310.75, unrealized: 48.60, totalTrades: 15 },
-    { symbol: 'AAPL', realized: -54.20, unrealized: 12.30, totalTrades: 6 },
-  ]);
+  const loadAccount = async () => {
+    try {
+      const response = await fetch('/api/pulse/account');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.status === 'unavailable' || data.error) {
+        setAccount(null);
+        setError('Pulse account data unavailable');
+      } else {
+        setAccount(data);
+        setError(null);
+      }
+    } catch {
+      setAccount(null);
+      setError('Pulse account data unavailable');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const totalRealized = tickerPnL.reduce((sum, t) => sum + t.realized, 0);
-  const totalUnrealized = tickerPnL.reduce((sum, t) => sum + t.unrealized, 0);
-  const totalPnL = totalRealized + totalUnrealized;
-  const currentDrawdown = Math.min(...drawdownHistory.map(d => d.value));
-  const maxDrawdown = -3.2; // Mock data
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="w-6 h-6 animate-spin text-emerald-400" />
+      </div>
+    );
+  }
+
+  if (error || !account) {
+    return (
+      <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700" data-testid="pnl-tracking">
+        <div className="flex items-center gap-3 text-gray-400">
+          <DollarSign className="w-5 h-5" />
+          <span>P&L Tracking</span>
+        </div>
+        <p className="text-gray-500 mt-4 text-sm">
+          Live P&L requires Sentinel Pulse account data. No generated P&L data is displayed.
+        </p>
+      </div>
+    );
+  }
+
+  const equity = numberOrZero(account.total_equity ?? account.equity);
+  const buyingPower = numberOrZero(account.buying_power ?? account.available_balance);
+  const dailyPnl = numberOrZero(account.daily_pnl ?? account.day_pnl ?? account.realized_pnl_today);
+  const dailyPnlPct = numberOrZero(account.daily_pnl_pct ?? account.day_pnl_pct);
+  const unrealizedPnl = numberOrZero(account.unrealized_pnl);
+  const drawdownPct = numberOrZero(account.drawdown_pct);
 
   return (
     <div className="space-y-6" data-testid="pnl-tracking">
-      {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
-          title="Total P&L"
-          value={`$${totalPnL.toFixed(2)}`}
-          subtitle="Realized + Unrealized"
+          title="Equity"
+          value={currency(equity)}
+          subtitle="Pulse account"
           icon={DollarSign}
-          color={totalPnL >= 0 ? 'green' : 'red'}
-          trend={totalPnL >= 0 ? 'up' : 'down'}
-          change={`${totalPnL >= 0 ? '+' : ''}${((totalPnL / 10000) * 100).toFixed(2)}%`}
+          color="blue"
         />
         <MetricCard
-          title="Realized P&L"
-          value={`$${totalRealized.toFixed(2)}`}
-          subtitle="Closed positions"
+          title="Daily P&L"
+          value={currency(dailyPnl)}
+          subtitle={`${dailyPnlPct.toFixed(2)}% today`}
           icon={TrendingUp}
-          color={totalRealized >= 0 ? 'green' : 'red'}
+          color={dailyPnl >= 0 ? 'green' : 'red'}
         />
         <MetricCard
           title="Unrealized P&L"
-          value={`$${totalUnrealized.toFixed(2)}`}
+          value={currency(unrealizedPnl)}
           subtitle="Open positions"
           icon={TrendingDown}
-          color={totalUnrealized >= 0 ? 'green' : 'red'}
+          color={unrealizedPnl >= 0 ? 'green' : 'red'}
         />
         <MetricCard
-          title="Max Drawdown"
-          value={`${currentDrawdown.toFixed(2)}%`}
-          subtitle="Current session"
+          title="Drawdown"
+          value={`${drawdownPct.toFixed(2)}%`}
+          subtitle={`Buying power ${currency(buyingPower)}`}
           icon={Percent}
-          color={Math.abs(currentDrawdown) > 5 ? 'red' : 'yellow'}
+          color={Math.abs(drawdownPct) > 5 ? 'red' : 'yellow'}
         />
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ChartCard
-          title="Cumulative P&L"
-          data={pnlHistory}
-          type="area"
-          color="#22c55e"
-          height={300}
-        />
-        <ChartCard
-          title="Drawdown %"
-          data={drawdownHistory}
-          type="area"
-          color="#ef4444"
-          height={300}
-        />
-      </div>
-
-      {/* Per-Ticker P&L Table */}
-      <div>
-        <h2 className="text-2xl font-bold text-white mb-4">Per-Ticker Performance</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {tickerPnL.map((ticker) => {
-            const total = ticker.realized + ticker.unrealized;
-            return (
-              <motion.div
-                key={ticker.symbol}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="relative overflow-hidden rounded-xl border border-gray-800 bg-gradient-to-br from-gray-900/90 to-gray-800/50
-                  backdrop-blur-sm shadow-xl hover:shadow-2xl transition-all duration-300"
-              >
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-2xl font-bold text-white">{ticker.symbol}</h3>
-                    <div className={`px-3 py-1 rounded-full text-sm font-medium
-                      ${total >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                      {total >= 0 ? '+' : ''}{total.toFixed(2)}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center pb-3 border-b border-gray-700/50">
-                      <span className="text-sm text-gray-400">Realized P&L</span>
-                      <span className={`text-lg font-semibold ${
-                        ticker.realized >= 0 ? 'text-green-400' : 'text-red-400'
-                      }`}>
-                        ${ticker.realized.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pb-3 border-b border-gray-700/50">
-                      <span className="text-sm text-gray-400">Unrealized P&L</span>
-                      <span className={`text-lg font-semibold ${
-                        ticker.unrealized >= 0 ? 'text-green-400' : 'text-red-400'
-                      }`}>
-                        ${ticker.unrealized.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-400">Total Trades</span>
-                      <span className="text-lg font-semibold text-white">{ticker.totalTrades}</span>
-                    </div>
-                  </div>
-
-                  {/* P&L Bar */}
-                  <div className="mt-4">
-                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-500 ${
-                          total >= 0 
-                            ? 'bg-gradient-to-r from-green-500 to-green-400' 
-                            : 'bg-gradient-to-r from-red-500 to-red-400'
-                        }`}
-                        style={{ width: `${Math.min(Math.abs(total / 500) * 100, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
       </div>
     </div>
   );

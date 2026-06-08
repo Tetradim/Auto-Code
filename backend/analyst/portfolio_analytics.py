@@ -264,62 +264,7 @@ class PortfolioAnalytics:
         return walls
 
 
-# Portfolio factory
-def create_demo_portfolio() -> PortfolioAnalytics:
-    """Create demo portfolio"""
-    portfolio = PortfolioAnalytics()
-    
-    # Add some demo positions
-    portfolio.add_position(Position(
-        symbol="NVDA",
-        side="call",
-        strike=850,
-        expiry="2025-05-16",
-        quantity=5,
-        entry_price=12.50,
-        current_price=15.20,
-        iv=0.35,
-        delta=0.45,
-        theta=-0.08,
-        gamma=0.012,
-        vega=0.25,
-    ))
-    
-    portfolio.add_position(Position(
-        symbol="AAPL",
-        side="call",
-        strike=180,
-        expiry="2025-05-16",
-        quantity=10,
-        entry_price=3.20,
-        current_price=2.85,
-        iv=0.28,
-        delta=0.35,
-        theta=-0.05,
-        gamma=0.008,
-        vega=0.15,
-    ))
-    
-    portfolio.add_position(Position(
-        symbol="SPY",
-        side="put",
-        strike=500,
-        expiry="2025-05-16",
-        quantity=3,
-        entry_price=2.10,
-        current_price=3.50,
-        iv=0.18,
-        delta=-0.25,
-        theta=-0.03,
-        gamma=0.005,
-        vega=0.08,
-    ))
-    
-    return portfolio
-
-
-# Singleton
-_portfolio_analytics = create_demo_portfolio()
+_portfolio_analytics = PortfolioAnalytics()
 
 
 def get_portfolio_analytics() -> PortfolioAnalytics:

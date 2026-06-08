@@ -589,7 +589,7 @@ npm.cmd run build
 Known current local limitation:
 
 - `pytest` is not installed in the current local environment (`No module named pytest`). Existing provider tests are present but were not run in that environment.
-- Vite build currently succeeds with existing warnings about `mockData.ts` mixed static/dynamic import and large bundle chunks.
+- Vite build currently succeeds without the previous mixed static/dynamic import warning after runtime mock data cleanup.
 
 ---
 
