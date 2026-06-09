@@ -56,6 +56,20 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
   const [initialLoad, setInitialLoad] = useState(true);
   const [backtestResults, setBacktestResults] = useState<BacktestResult | null>(null);
   const [runningBacktest, setRunningBacktest] = useState(false);
+  const [monteCarloSettings, setMonteCarloSettings] = useState({
+    enabled: true,
+    method: 'bootstrap',
+    simulations: 1000,
+    volatilityMultiplier: 1,
+    confidenceLevel: 0.95,
+    randomSeed: '',
+    includePaths: true,
+    savedCharts: true,
+    samplePathCount: 25,
+    histogramBins: 20,
+    ruinThresholdPct: 50,
+    blockSize: 5,
+  });
 
   // Load existing config when modal opens
   useEffect(() => {
@@ -184,7 +198,7 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
         .toISOString()
         .split('T')[0];
 
-      const result = await api.runBacktest(symbol, startDate, endDate, 10000);
+      const result = await api.runBacktest(symbol, startDate, endDate, 10000, monteCarloSettings);
       setBacktestResults(result);
     } catch (error) {
       console.error('Backtest failed:', error);
@@ -231,7 +245,7 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
       />
 
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-lg bg-zinc-900 rounded-2xl border border-zinc-700 shadow-2xl">
+      <div className="relative z-10 w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-zinc-900 rounded-2xl border border-zinc-700 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-700">
           <h2 className="text-lg font-semibold text-white">
@@ -352,6 +366,142 @@ export const TickerConfigModal: React.FC<TickerConfigModalProps> = ({
                     />
                     <p className="text-xs text-zinc-500 mt-1">Enable trailing stop after profit %</p>
                   </div>
+                </div>
+              </div>
+
+              {/* Monte Carlo Settings */}
+              <div className="space-y-4 border-t border-zinc-700 pt-6">
+                <div className="flex items-center justify-between gap-4">
+                  <label className="text-sm font-medium text-white">Monte Carlo Settings</label>
+                  <label className="flex items-center gap-2 text-xs text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={monteCarloSettings.enabled}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, enabled: e.target.checked })}
+                    />
+                    Enabled
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Method</label>
+                    <select
+                      value={monteCarloSettings.method}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, method: e.target.value })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="bootstrap">Bootstrap</option>
+                      <option value="shuffle">Trade Shuffle</option>
+                      <option value="normal">Normal Returns</option>
+                      <option value="block_bootstrap">Block Bootstrap</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Simulations</label>
+                    <input
+                      type="number"
+                      min={100}
+                      max={50000}
+                      step={100}
+                      value={monteCarloSettings.simulations}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, simulations: parseInt(e.target.value) || 1000 })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Confidence</label>
+                    <select
+                      value={monteCarloSettings.confidenceLevel}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, confidenceLevel: parseFloat(e.target.value) })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    >
+                      <option value={0.9}>90%</option>
+                      <option value={0.95}>95%</option>
+                      <option value={0.99}>99%</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Random Seed</label>
+                    <input
+                      type="number"
+                      value={monteCarloSettings.randomSeed}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, randomSeed: e.target.value })}
+                      placeholder="optional"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Volatility Multiplier</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={5}
+                      step={0.1}
+                      value={monteCarloSettings.volatilityMultiplier}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, volatilityMultiplier: parseFloat(e.target.value) || 1 })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Block Size</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={monteCarloSettings.blockSize}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, blockSize: parseInt(e.target.value) || 5 })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Sample Paths</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={200}
+                      value={monteCarloSettings.samplePathCount}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, samplePathCount: parseInt(e.target.value) || 25 })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Histogram Bins</label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={100}
+                      value={monteCarloSettings.histogramBins}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, histogramBins: parseInt(e.target.value) || 20 })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 text-xs text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={monteCarloSettings.savedCharts}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, savedCharts: e.target.checked })}
+                    />
+                    Save chart datasets
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={monteCarloSettings.includePaths}
+                      onChange={(e) => setMonteCarloSettings({ ...monteCarloSettings, includePaths: e.target.checked })}
+                    />
+                    Include sample paths
+                  </label>
                 </div>
               </div>
             </>

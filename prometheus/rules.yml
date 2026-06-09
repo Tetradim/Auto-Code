@@ -14,6 +14,7 @@ groups:
         annotations:
           summary: "Sentinel Edge evaluation engine is not running"
           description: "edge_engine_running=0 for more than 1 minute."
+          runbook_url: "docs/runbooks/engine-not-running.md"
 
       - alert: EdgeEnginePaused
         expr: edge_engine_paused == 1
@@ -23,6 +24,7 @@ groups:
           service: sentinel-edge
         annotations:
           summary: "Sentinel Edge engine has been paused for >10 minutes"
+          runbook_url: "docs/runbooks/engine-paused.md"
 
       # ── Signal quality ──────────────────────────────────────────────────
 
@@ -35,6 +37,7 @@ groups:
         annotations:
           summary: "High consecutive loss streak on {{ $labels.symbol }}"
           description: "{{ $labels.symbol }} has {{ $value }} consecutive losses."
+          runbook_url: "docs/runbooks/consecutive-losses.md"
 
       - alert: LowWinRate
         expr: edge_win_rate < 40
@@ -45,6 +48,7 @@ groups:
         annotations:
           summary: "Win rate below 40% for {{ $labels.symbol }}"
           description: "Current win rate: {{ $value }}%"
+          runbook_url: "docs/runbooks/low-win-rate.md"
 
       # ── Evaluation performance ──────────────────────────────────────────
 
@@ -57,6 +61,7 @@ groups:
         annotations:
           summary: "Sentinel Edge evaluation p99 latency exceeds 1 second"
           description: "p99 evaluation duration = {{ $value }}s"
+          runbook_url: "docs/runbooks/slow-evaluation.md"
 
       - alert: PriceFetchFailures
         expr: rate(price_fetch_failures_total[5m]) > 0.5
@@ -67,6 +72,7 @@ groups:
         annotations:
           summary: "Price fetch failure rate elevated"
           description: "{{ $value }} failures/s over the last 5 minutes."
+          runbook_url: "docs/runbooks/price-fetch-failures.md"
 
       # ── Correlation clusters ────────────────────────────────────────────
 
@@ -79,6 +85,7 @@ groups:
         annotations:
           summary: "BEARISH correlation cluster detected"
           description: "Multiple symbols breaking down simultaneously."
+          runbook_url: "docs/runbooks/correlation-cluster.md"
 
       - alert: HighDrawdown
         expr: ticker_drawdown_percent > 8
@@ -101,6 +108,7 @@ groups:
         annotations:
           summary: "Sentinel Edge bot is down"
           description: "The bot has been unresponsive for 2 minutes. Check if the process is running."
+          runbook_url: "docs/runbooks/sidecar-down.md"
 
       - alert: StaleData
         expr: time() - sentinel_last_tick > 30
@@ -111,6 +119,7 @@ groups:
         annotations:
           summary: "Stale data - no ticks received"
           description: "No tick received in >30 seconds. Bot may be stuck."
+          runbook_url: "docs/runbooks/stale-data.md"
 
       - alert: DrawdownExceeded
         expr: sentinel_drawdown_pct < -0.15
@@ -121,6 +130,67 @@ groups:
         annotations:
           summary: "Portfolio drawdown exceeded 15%"
           description: "Current drawdown: {{ $value | printf \"%.1f\" }}%. Consider stopping the bot."
+
+  - name: frontend_experience_rules
+    interval: 15s
+    rules:
+
+      - record: edge_frontend_rum:freshness_seconds
+        expr: time() - edge_frontend_rum_last_received_timestamp_seconds
+
+      - record: edge_frontend_rum:ingest_rate_per_minute
+        expr: sum by (route) (rate(edge_frontend_rum_samples_total[5m])) * 60
+
+      - record: edge_frontend_slow_interaction:p95_ms
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(edge_frontend_slow_interaction_duration_ms_bucket[5m])))
+
+      - record: edge_frontend_long_task:p95_ms
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(edge_frontend_long_task_duration_ms_bucket[5m])))
+
+  - name: api_observability_rules
+    interval: 15s
+    rules:
+
+      - record: edge_rate_limit_rejections:rate5m
+        expr: sum by (scope) (rate(edge_rate_limit_rejections_total[5m]))
+
+      - record: edge_rate_limit_tracked_clients:max5m
+        expr: max_over_time(edge_rate_limit_tracked_clients[5m])
+
+  - name: automation_observability_rules
+    interval: 15s
+    rules:
+
+      - record: edge_automation_handoffs:rate5m
+        expr: sum by (action, mode, result, reason) (rate(edge_automation_handoffs_total[5m]))
+
+  - name: api_slo_rules
+    interval: 15s
+    rules:
+
+      - record: edge_api_availability:error_ratio5m
+        expr: sum(increase(edge_api_calls_total{status!="success"}[5m])) / clamp_min(sum(increase(edge_api_calls_total[5m])), 1)
+
+      - record: edge_api_availability:error_ratio30m
+        expr: sum(increase(edge_api_calls_total{status!="success"}[30m])) / clamp_min(sum(increase(edge_api_calls_total[30m])), 1)
+
+      - record: edge_api_availability:error_ratio1h
+        expr: sum(increase(edge_api_calls_total{status!="success"}[1h])) / clamp_min(sum(increase(edge_api_calls_total[1h])), 1)
+
+      - record: edge_api_availability:error_ratio6h
+        expr: sum(increase(edge_api_calls_total{status!="success"}[6h])) / clamp_min(sum(increase(edge_api_calls_total[6h])), 1)
+
+      - record: edge_api_availability:burn_rate5m
+        expr: edge_api_availability:error_ratio5m / 0.01
+
+      - record: edge_api_availability:burn_rate30m
+        expr: edge_api_availability:error_ratio30m / 0.01
+
+      - record: edge_api_availability:burn_rate1h
+        expr: edge_api_availability:error_ratio1h / 0.01
+
+      - record: edge_api_availability:burn_rate6h
+        expr: edge_api_availability:error_ratio6h / 0.01
 
   # ── Analyst correlation rules ───────────────────────────────────────────
 
@@ -138,6 +208,7 @@ groups:
           description: >
             {{ $value }} high-strength {{ $labels.direction }} clusters detected.
             Multiple symbols breaking out in the same direction — potential market-wide move.
+          runbook_url: "docs/runbooks/correlation-cluster.md"
 
       - alert: BearishClusterOverride
         expr: increase(analyst_correlation_clusters_total{direction="bearish",strength="high"}[5m]) > 0
@@ -148,6 +219,7 @@ groups:
         annotations:
           summary: "BEARISH high-strength cluster — Pulse override triggered"
           description: "Tighten-trailing-global override sent to Pulse."
+          runbook_url: "docs/runbooks/correlation-cluster.md"
 
       - alert: HighPulseOverrideRate
         expr: rate(analyst_pulse_overrides_total[5m]) > 0.5

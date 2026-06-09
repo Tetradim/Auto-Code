@@ -1,5 +1,6 @@
 """Sentinel Edge — Main FastAPI Server"""
 import asyncio
+import json
 import logging
 import os
 import re
@@ -31,6 +32,28 @@ from scheduler import EvaluationScheduler
 from signals import SignalEngine
 from alert_handler import router as alert_handler_router, shutdown as alert_handler_shutdown
 from automation import AutomationMode
+from frontend_rum import FrontendRumRegistry, metric_label, normalise_rum_route
+from metrics import (
+    edge_frontend_long_task_duration_ms,
+    edge_frontend_rum_active_routes,
+    edge_frontend_rum_dropped_metrics_total,
+    edge_frontend_rum_last_received_timestamp_seconds,
+    edge_frontend_rum_samples_total,
+    edge_frontend_slow_interaction_duration_ms,
+    edge_frontend_web_vital_value,
+    edge_rate_limit_pruned_clients_total,
+    edge_rate_limit_rejections_total,
+    edge_rate_limit_tracked_clients,
+    edge_readiness_check_status,
+    edge_readiness_status,
+    monte_carlo_expected_shortfall,
+    monte_carlo_mean_drawdown,
+    monte_carlo_median_equity,
+    monte_carlo_probability_profit,
+    monte_carlo_profit_prob,
+    monte_carlo_ruin_prob,
+    monte_carlo_var_5pct,
+)
 
 # NEW: Resilience & persistence modules
 from state_persistence import StatePersistence, IdempotencyManager
@@ -59,6 +82,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+PROCESS_STARTED_AT = time.time()
 
 # Demo mode - runs without external dependencies
 DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")
@@ -93,10 +117,14 @@ config_hasher: ConfigHasher = None
 # ─────────────────────────────────────────────────────────────────────────────
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
+_MONTE_CARLO_CHART_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,96}$")
 _RATE_LIMIT_WINDOW_SECONDS = 60
 _RATE_LIMIT_MAX_REQUESTS = 120
+_RATE_LIMIT_BUCKET_PRESSURE_WARNING_THRESHOLD = 500
 _rate_limit_buckets: Dict[str, list[float]] = {}
 _memory_ticker_configs: Dict[str, Dict[str, Any]] = {}
+frontend_rum_registry = FrontendRumRegistry()
+FRONTEND_RUM_WEB_VITAL_METRICS = {"inp", "lcp", "cls", "ttfb", "fcp"}
 
 
 def _symbol(raw: str) -> str:
@@ -129,16 +157,102 @@ def _require_price_fetcher() -> PriceFetcher:
     return price_fetcher
 
 
+def _readiness_checks() -> Dict[str, bool]:
+    """Return dependency checks used by /api/ready."""
+    scheduler_task_alive = scheduler_task is not None and not scheduler_task.done()
+    return {
+        "scheduler_initialized": scheduler is not None,
+        "scheduler_running": bool(scheduler and scheduler.running),
+        "scheduler_task_alive": scheduler_task_alive,
+        "price_fetcher_initialized": price_fetcher is not None,
+        "analyst_initialized": edge is not None,
+        "mongo_available": DEMO_MODE or db is not None,
+        "demo_mode": DEMO_MODE,
+    }
+
+
+def _publish_readiness_metrics(checks: Dict[str, bool], ready: bool) -> None:
+    """Publish current readiness state using fixed low-cardinality labels."""
+    edge_readiness_status.set(1 if ready else 0)
+    for check_name, check_ready in checks.items():
+        edge_readiness_check_status.labels(check=check_name).set(1 if check_ready else 0)
+
+
+def _refresh_readiness_metrics() -> Dict[str, Any]:
+    """Refresh readiness gauges and return the current readiness payload."""
+    checks = _readiness_checks()
+    ready = all(value for key, value in checks.items() if key != "demo_mode")
+    failing_checks = [key for key, value in checks.items() if key != "demo_mode" and not value]
+    _publish_readiness_metrics(checks, ready)
+    return {"ready": ready, "checks": checks, "failing_checks": failing_checks}
+
+
+def _rate_limit_pressure(tracked_clients: int) -> str:
+    """Return the aggregate rate-limit bucket pressure state."""
+    if tracked_clients >= _RATE_LIMIT_BUCKET_PRESSURE_WARNING_THRESHOLD:
+        return "warning"
+    return "normal"
+
+
+def _rate_limit_remaining(request: Request) -> int:
+    """Return the current caller's remaining request budget without exposing identity."""
+    client = request.client.host if request.client else "unknown"
+    recent = _rate_limit_buckets.get(client, [])
+    return max(0, _RATE_LIMIT_MAX_REQUESTS - len(recent))
+
+
+def _rate_limit_reset_seconds(request: Request, now: float) -> int:
+    """Return seconds until the current caller's fixed-window bucket starts resetting."""
+    client = request.client.host if request.client else "unknown"
+    recent = _rate_limit_buckets.get(client, [])
+    if not recent:
+        return 0
+    return max(0, min(_RATE_LIMIT_WINDOW_SECONDS, int(recent[0] + _RATE_LIMIT_WINDOW_SECONDS - now) + 1))
+
+
+def _prune_rate_limit_buckets(now: float) -> None:
+    """Remove idle client buckets after their fixed window expires."""
+    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+    stale_clients = [
+        client
+        for client, timestamps in _rate_limit_buckets.items()
+        if not timestamps or timestamps[-1] < cutoff
+    ]
+    for client in stale_clients:
+        del _rate_limit_buckets[client]
+    edge_rate_limit_pruned_clients_total.inc(len(stale_clients))
+    edge_rate_limit_tracked_clients.set(len(_rate_limit_buckets))
+
+
 def _enforce_rate_limit(request: Request) -> None:
     """Simple fixed-window in-memory rate limiter (per client IP)."""
     client = request.client.host if request.client else "unknown"
     now = time.time()
+    _prune_rate_limit_buckets(now)
     recent = _rate_limit_buckets.setdefault(client, [])
+    edge_rate_limit_tracked_clients.set(len(_rate_limit_buckets))
     cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
     while recent and recent[0] < cutoff:
         recent.pop(0)
     if len(recent) >= _RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        retry_after_seconds = max(1, min(_RATE_LIMIT_WINDOW_SECONDS, int(recent[0] + _RATE_LIMIT_WINDOW_SECONDS - now) + 1))
+        edge_rate_limit_rejections_total.labels(scope="api").inc()
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "Rate limit exceeded",
+                "retry_after_seconds": retry_after_seconds,
+            },
+            headers={
+                "Retry-After": str(retry_after_seconds),
+                "RateLimit-Limit": str(_RATE_LIMIT_MAX_REQUESTS),
+                "RateLimit-Remaining": "0",
+                "RateLimit-Reset": str(retry_after_seconds),
+                "X-RateLimit-Limit": str(_RATE_LIMIT_MAX_REQUESTS),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": str(retry_after_seconds),
+            },
+        )
     recent.append(now)
 
 
@@ -212,6 +326,33 @@ class TickerAutomationBody(BaseModel):
     enabled: bool
 
 
+class FrontendRumMetric(BaseModel):
+    """Single browser-side Web Vital value."""
+    name: str = Field(..., min_length=1, max_length=16)
+    value: Optional[float] = Field(None, ge=0)
+    unit: str = Field(..., min_length=1, max_length=16)
+    rating: str = Field("pending", min_length=1, max_length=32)
+
+
+class FrontendRumInteraction(BaseModel):
+    """Slow interaction observation from the browser Event Timing API."""
+    type: str = Field("interaction", min_length=1, max_length=64)
+    duration: float = Field(..., ge=0)
+
+
+class FrontendRumLongTask(BaseModel):
+    """Long task observation from the browser PerformanceObserver API."""
+    duration: float = Field(..., ge=0)
+
+
+class FrontendRumSnapshot(BaseModel):
+    """Request body for POST /api/frontend/rum."""
+    route: str = Field("/", min_length=1, max_length=128)
+    metrics: List[FrontendRumMetric] = Field(default_factory=list, max_length=12)
+    slowInteractions: List[FrontendRumInteraction] = Field(default_factory=list, max_length=10)
+    longTasks: List[FrontendRumLongTask] = Field(default_factory=list, max_length=12)
+
+
 class BacktestRequest(BaseModel):
     """Request body for POST /api/backtest."""
     symbol: str
@@ -222,6 +363,16 @@ class BacktestRequest(BaseModel):
     commission_pct: float = 0.1
     num_simulations: int = 1000
     volatility_multiplier: float = 1.0
+    monte_carlo_enabled: bool = True
+    monte_carlo_method: str = Field("bootstrap", pattern="^(bootstrap|shuffle|normal|block_bootstrap)$")
+    monte_carlo_confidence_level: float = Field(0.95, ge=0.50, le=0.999)
+    monte_carlo_random_seed: Optional[int] = None
+    monte_carlo_include_paths: bool = True
+    monte_carlo_saved_charts: bool = True
+    monte_carlo_sample_path_count: int = Field(25, ge=0, le=200)
+    monte_carlo_histogram_bins: int = Field(20, ge=5, le=100)
+    monte_carlo_ruin_threshold_pct: float = Field(50.0, ge=0.0, le=100.0)
+    monte_carlo_block_size: int = Field(5, ge=1, le=100)
     dry_run: bool = True
 
 
@@ -230,7 +381,8 @@ class BacktestRunRequest(BaseModel):
     symbols: List[str] = Field(default_factory=lambda: ["AAPL"])
     start_date: str  # YYYY-MM-DD
     end_date: str  # YYYY-MM-DD
-    strategy: str = "sma"  # sma, rsi, breakout, rsi_with_patterns, sma_with_patterns
+    timeframe: str = Field("1d", pattern="^(1m|5m|15m|1h|1d|1wk)$")
+    strategy: str = "sma"  # sma, rsi, breakout, rsi_with_patterns, sma_with_patterns, puzzle_key_strategy
     initial_capital: float = 100000.0
     position_size_pct: float = 0.10
     stop_loss_pct: float = 0.05
@@ -246,11 +398,106 @@ class BacktestRunRequest(BaseModel):
     breakout_lookback: Optional[int] = 20
     # Pattern mode (for pattern-enhanced strategies)
     pattern_mode: Optional[str] = "filter"
+    # Puzzle Key Strategy params
+    puzzle_key_mode: str = Field("combined", pattern="^(night|day|combined)$")
+    puzzle_key_night_session: str = "18:00-07:00"
+    puzzle_key_day_session: str = "07:00-15:00"
+    puzzle_key_night_bar_minutes: int = Field(105, ge=1, le=1440)
+    puzzle_key_day_bar_minutes: int = Field(60, ge=1, le=1440)
+    puzzle_key_reversal_lookback: int = Field(3, ge=2, le=200)
+    puzzle_key_atr_period: int = Field(14, ge=2, le=200)
+    puzzle_key_atr_multiplier: float = Field(0.75, ge=0.0, le=10.0)
+    puzzle_key_trend_period: int = Field(20, ge=2, le=500)
+    puzzle_key_trade_direction: str = Field("both", pattern="^(long|short|both)$")
+    puzzle_key_confidence_floor: float = Field(0.55, ge=0.0, le=1.0)
+    puzzle_key_no_new_entries_after: str = ""
+    num_simulations: int = 1000
+    volatility_multiplier: float = 1.0
+    monte_carlo_enabled: bool = True
+    monte_carlo_method: str = Field("bootstrap", pattern="^(bootstrap|shuffle|normal|block_bootstrap)$")
+    monte_carlo_confidence_level: float = Field(0.95, ge=0.50, le=0.999)
+    monte_carlo_random_seed: Optional[int] = None
+    monte_carlo_include_paths: bool = True
+    monte_carlo_saved_charts: bool = True
+    monte_carlo_sample_path_count: int = Field(25, ge=0, le=200)
+    monte_carlo_histogram_bins: int = Field(20, ge=5, le=100)
+    monte_carlo_ruin_threshold_pct: float = Field(50.0, ge=0.0, le=100.0)
+    monte_carlo_block_size: int = Field(5, ge=1, le=100)
 
 
 class BacktestReportRequest(BaseModel):
     """Request for GET /api/backtest/report/{run_id}"""
     run_id: str
+
+
+def _monte_carlo_settings_from_request(request: Any):
+    """Build Monte Carlo settings from a backtest request."""
+    from backtest.monte_carlo import MonteCarloSettings
+
+    return MonteCarloSettings(
+        enabled=getattr(request, "monte_carlo_enabled", True),
+        num_simulations=getattr(request, "num_simulations", 1000),
+        method=getattr(request, "monte_carlo_method", "bootstrap"),
+        volatility_multiplier=getattr(request, "volatility_multiplier", 1.0),
+        confidence_level=getattr(request, "monte_carlo_confidence_level", 0.95),
+        random_seed=getattr(request, "monte_carlo_random_seed", None),
+        include_paths=getattr(request, "monte_carlo_include_paths", True),
+        saved_charts=getattr(request, "monte_carlo_saved_charts", True),
+        sample_path_count=getattr(request, "monte_carlo_sample_path_count", 25),
+        histogram_bins=getattr(request, "monte_carlo_histogram_bins", 20),
+        ruin_threshold_pct=getattr(request, "monte_carlo_ruin_threshold_pct", 50.0),
+        block_size=getattr(request, "monte_carlo_block_size", 5),
+    )
+
+
+def _monte_carlo_chart_root() -> Path:
+    """Return the root directory for saved Monte Carlo chart JSON."""
+    return Path(os.getenv("SENTINEL_EDGE_MONTE_CARLO_CHART_DIR", "data/monte_carlo_charts")).resolve()
+
+
+def _safe_monte_carlo_chart_name(value: str) -> str:
+    """Validate a saved chart run id or chart name before using it in paths."""
+    if not _MONTE_CARLO_CHART_NAME_RE.fullmatch(value):
+        raise HTTPException(status_code=422, detail="Invalid Monte Carlo chart identifier")
+    return value
+
+
+def _monte_carlo_chart_api_path(run_id: str, chart_name: str) -> str:
+    return f"/api/backtest/monte-carlo/charts/{run_id}/{chart_name}"
+
+
+def _attach_monte_carlo_chart_api_paths(monte_carlo: Dict[str, Any]) -> None:
+    chart_set = monte_carlo.get("saved_chart_set")
+    if not isinstance(chart_set, dict):
+        return
+
+    run_id = chart_set.get("run_id")
+    charts = chart_set.get("charts")
+    if not isinstance(run_id, str) or not isinstance(charts, list):
+        return
+
+    for chart in charts:
+        if not isinstance(chart, dict) or not isinstance(chart.get("name"), str):
+            continue
+        chart["api_path"] = _monte_carlo_chart_api_path(run_id, chart["name"])
+
+
+def _record_monte_carlo_metrics(symbol: str, monte_carlo: Dict[str, Any]) -> None:
+    """Publish the latest Monte Carlo tail-risk summary to Prometheus."""
+    if monte_carlo.get("status") != "completed":
+        return
+
+    label = symbol.upper()
+    probability_ratio = float(monte_carlo.get("probability_of_profit", 0) or 0) / 100
+    monte_carlo_probability_profit.labels(symbol=label).set(probability_ratio)
+    monte_carlo_profit_prob.labels(symbol=label).set(probability_ratio)
+    monte_carlo_var_5pct.labels(symbol=label).set(float(monte_carlo.get("value_at_risk_pct", 0) or 0) / 100)
+    monte_carlo_expected_shortfall.labels(symbol=label).set(
+        float(monte_carlo.get("conditional_value_at_risk_pct", 0) or 0) / 100
+    )
+    monte_carlo_median_equity.labels(symbol=label).set(float(monte_carlo.get("median_final_equity", 0) or 0))
+    monte_carlo_mean_drawdown.labels(symbol=label).set(float(monte_carlo.get("mean_max_drawdown", 0) or 0) / 100)
+    monte_carlo_ruin_prob.labels(symbol=label).set(float(monte_carlo.get("probability_of_ruin", 0) or 0) / 100)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -427,6 +674,19 @@ async def root():
     }
 
 
+@api_router.get("/live")
+async def liveness():
+    """Return process liveness without checking runtime dependencies."""
+    now = time.time()
+    return {
+        "status": "alive",
+        "service": "sentinel-edge",
+        "pid": os.getpid(),
+        "uptime_seconds": round(now - PROCESS_STARTED_AT, 3),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
+
 @api_router.get("/health")
 async def health():
     sched = _require_scheduler()
@@ -437,6 +697,99 @@ async def health():
         "active_tickers":         len(sched.active_tickers),
         "pulse_available":        sched.pulse.pulse_available,
         "position_tracking_mode": sched.position_tracker.mode_name,
+    }
+
+
+@api_router.get("/ready")
+async def readiness():
+    """Return 200 only when Edge core runtime dependencies are ready."""
+    readiness_state = _refresh_readiness_metrics()
+    checks = readiness_state["checks"]
+    ready = readiness_state["ready"]
+    failing_checks = readiness_state["failing_checks"]
+    payload = {
+        "ready": ready,
+        "status": "ready" if ready else "not_ready",
+        "checks": checks,
+        "failing_checks": failing_checks,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+    if not ready:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
+
+
+@api_router.post("/frontend/rum")
+async def ingest_frontend_rum(snapshot: FrontendRumSnapshot, request: Request):
+    """Ingest browser RUM snapshots and expose them through /metrics."""
+    _enforce_rate_limit(request)
+    route = normalise_rum_route(snapshot.route)
+    edge_frontend_rum_samples_total.labels(route=route).inc()
+
+    accepted_metrics = 0
+    for item in snapshot.metrics:
+        if item.value is None:
+            continue
+        metric_name = metric_label(item.name, fallback="unknown", limit=24)
+        if metric_name not in FRONTEND_RUM_WEB_VITAL_METRICS:
+            edge_frontend_rum_dropped_metrics_total.labels(reason="unknown_metric").inc()
+            continue
+        rating = metric_label(item.rating, fallback="unknown", limit=32)
+        edge_frontend_web_vital_value.labels(
+            route=route,
+            metric=metric_name,
+            rating=rating,
+        ).set(item.value)
+        accepted_metrics += 1
+
+    for item in snapshot.slowInteractions:
+        edge_frontend_slow_interaction_duration_ms.labels(
+            route=route,
+            type=metric_label(item.type, fallback="interaction", limit=32),
+        ).observe(item.duration)
+
+    for item in snapshot.longTasks:
+        edge_frontend_long_task_duration_ms.labels(route=route).observe(item.duration)
+
+    frontend_rum_registry.record(
+        route,
+        metrics=accepted_metrics,
+        slow_interactions=len(snapshot.slowInteractions),
+        long_tasks=len(snapshot.longTasks),
+    )
+    rum_status = frontend_rum_registry.status()
+    edge_frontend_rum_last_received_timestamp_seconds.set(time.time())
+    edge_frontend_rum_active_routes.set(rum_status["route_count"])
+
+    return {
+        "status": "accepted",
+        "route": route,
+        "metrics": accepted_metrics,
+        "slow_interactions": len(snapshot.slowInteractions),
+        "long_tasks": len(snapshot.longTasks),
+    }
+
+
+@api_router.get("/frontend/rum/status")
+async def get_frontend_rum_status(request: Request):
+    """Return recent frontend RUM ingestion health for the UI."""
+    _enforce_rate_limit(request)
+    return frontend_rum_registry.status()
+
+
+@api_router.get("/rate-limit/status")
+async def get_rate_limit_status(request: Request):
+    """Return aggregate API rate limiter state without client identifiers."""
+    _enforce_rate_limit(request)
+    tracked_clients = len(_rate_limit_buckets)
+    return {
+        "tracked_clients": tracked_clients,
+        "window_seconds": _RATE_LIMIT_WINDOW_SECONDS,
+        "max_requests_per_window": _RATE_LIMIT_MAX_REQUESTS,
+        "bucket_pressure_warning_threshold": _RATE_LIMIT_BUCKET_PRESSURE_WARNING_THRESHOLD,
+        "pressure": _rate_limit_pressure(tracked_clients),
+        "remaining_requests": _rate_limit_remaining(request),
+        "reset_seconds": _rate_limit_reset_seconds(request, time.time()),
     }
 
 
@@ -753,7 +1106,84 @@ async def run_backtest(
         num_simulations=request.num_simulations,
         volatility_multiplier=request.volatility_multiplier
     )
+    result["initial_capital"] = request.initial_capital
+    if "error" not in result:
+        from backtest.monte_carlo import MonteCarloEngine, MonteCarloSettings
+
+        monte_carlo_settings: MonteCarloSettings = _monte_carlo_settings_from_request(request)
+        result["monte_carlo"] = await MonteCarloEngine().run_simulation(result, monte_carlo_settings)
+        _attach_monte_carlo_chart_api_paths(result["monte_carlo"])
+        _record_monte_carlo_metrics(request.symbol, result["monte_carlo"])
     return result
+
+
+@api_router.get("/backtest/monte-carlo/charts")
+async def list_monte_carlo_chart_sets():
+    """List saved Monte Carlo chart bundles with API paths for each chart."""
+    root = _monte_carlo_chart_root()
+    if not root.exists():
+        return {"chart_sets": []}
+
+    chart_sets: List[Dict[str, Any]] = []
+    for manifest_path in sorted(root.glob("*/manifest.json"), key=lambda path: path.stat().st_mtime, reverse=True):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        run_id = str(manifest.get("run_id") or manifest_path.parent.name)
+        try:
+            safe_run_id = _safe_monte_carlo_chart_name(run_id)
+        except HTTPException:
+            continue
+
+        safe_charts = []
+        for chart in manifest.get("charts", []):
+            if not isinstance(chart, dict):
+                continue
+            chart_name = str(chart.get("name") or "")
+            try:
+                safe_chart_name = _safe_monte_carlo_chart_name(chart_name)
+            except HTTPException:
+                continue
+            safe_charts.append(
+                {
+                    **chart,
+                    "name": safe_chart_name,
+                    "api_path": _monte_carlo_chart_api_path(safe_run_id, safe_chart_name),
+                }
+            )
+
+        chart_sets.append(
+            {
+                **manifest,
+                "run_id": safe_run_id,
+                "chart_count": len(safe_charts),
+                "charts": safe_charts,
+                "manifest_path": str(manifest_path.resolve()),
+            }
+        )
+
+    return {"chart_sets": chart_sets}
+
+
+@api_router.get("/backtest/monte-carlo/charts/{run_id}/{chart_name}")
+async def get_monte_carlo_chart(run_id: str, chart_name: str):
+    """Return one saved Monte Carlo chart JSON payload."""
+    safe_run_id = _safe_monte_carlo_chart_name(run_id)
+    safe_chart_name = _safe_monte_carlo_chart_name(chart_name)
+    root = _monte_carlo_chart_root()
+    chart_path = (root / safe_run_id / f"{safe_chart_name}.json").resolve()
+
+    if root not in chart_path.parents:
+        raise HTTPException(status_code=403, detail="Chart path is outside the Monte Carlo chart directory")
+    if not chart_path.exists():
+        raise HTTPException(status_code=404, detail="Monte Carlo chart not found")
+
+    try:
+        return json.loads(chart_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="Saved Monte Carlo chart JSON is invalid") from exc
 
 
 @api_router.post("/backtest/run")
@@ -777,6 +1207,7 @@ async def run_backtest_enhanced(
         symbols=request.symbols,
         start_date=request.start_date,
         end_date=request.end_date,
+        timeframe=request.timeframe,
         initial_capital=request.initial_capital,
         position_size_pct=request.position_size_pct,
         stop_loss_pct=request.stop_loss_pct,
@@ -804,12 +1235,42 @@ async def run_backtest_enhanced(
             "overbought": request.rsi_overbought,
             "pattern_mode": request.pattern_mode
         }
+    elif request.strategy == "puzzle_key_strategy":
+        strategy_params = {
+            "mode": request.puzzle_key_mode,
+            "night_session": request.puzzle_key_night_session,
+            "day_session": request.puzzle_key_day_session,
+            "night_bar_minutes": request.puzzle_key_night_bar_minutes,
+            "day_bar_minutes": request.puzzle_key_day_bar_minutes,
+            "reversal_lookback": request.puzzle_key_reversal_lookback,
+            "atr_period": request.puzzle_key_atr_period,
+            "atr_multiplier": request.puzzle_key_atr_multiplier,
+            "trend_period": request.puzzle_key_trend_period,
+            "trade_direction": request.puzzle_key_trade_direction,
+            "confidence_floor": request.puzzle_key_confidence_floor,
+            "no_new_entries_after": request.puzzle_key_no_new_entries_after,
+        }
     
     strategy = create_strategy(request.strategy, config, **strategy_params)
     
     # Run backtest
     engine = BacktestEngine(config, strategy)
     metrics = await engine.run()
+    symbol_label = ",".join(symbol.upper() for symbol in request.symbols)
+    from backtest.monte_carlo import MonteCarloEngine
+
+    monte_carlo_base = {
+        "symbol": symbol_label or "MULTI",
+        "initial_capital": request.initial_capital,
+        "total_return_pct": metrics.total_return_pct,
+        "trades": [{"pnl_pct": t.pnl_pct} for t in metrics.trades],
+    }
+    monte_carlo = await MonteCarloEngine().run_simulation(
+        monte_carlo_base,
+        _monte_carlo_settings_from_request(request),
+    )
+    _attach_monte_carlo_chart_api_paths(monte_carlo)
+    _record_monte_carlo_metrics(symbol_label or "MULTI", monte_carlo)
     
     # Store result for later retrieval
     run_id = f"bt_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
@@ -829,6 +1290,7 @@ async def run_backtest_enhanced(
             } for t in metrics.trades
         ],
         "equity_curve": metrics.equity_curve,
+        "monte_carlo": monte_carlo,
         "created_at": datetime.utcnow().isoformat()
     }
     
@@ -843,7 +1305,8 @@ async def run_backtest_enhanced(
             "max_drawdown_pct": metrics.max_drawdown_pct,
             "total_trades": metrics.total_trades,
             "win_rate": metrics.win_rate
-        }
+        },
+        "monte_carlo": monte_carlo
     }
 
 
@@ -871,6 +1334,7 @@ async def get_backtest_report(run_id: str):
         "metrics": run["metrics"],
         "trades": run["trades"],
         "equity_curve": run["equity_curve"][:100],  # Limit for display
+        "monte_carlo": run.get("monte_carlo"),
         "created_at": run["created_at"]
     }
 
@@ -880,6 +1344,41 @@ async def list_strategies():
     """List all available strategies with their parameters"""
     from strategies.registry import StrategyRegistry
     return StrategyRegistry.list_strategies()
+
+
+@api_router.get("/strategies/puzzle-key/status")
+async def get_puzzle_key_status():
+    """Return active Puzzle Key Strategy feature flag and runtime configuration."""
+    enabled = os.getenv("EDGE_PUZZLE_KEY_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+    automation = None
+    if scheduler is not None and getattr(scheduler, "automation", None) is not None:
+        automation = scheduler.automation.settings.public_dict()
+
+    return {
+        "strategy": "puzzle_key_strategy",
+        "enabled": enabled,
+        "source": "environment",
+        "env": {
+            "EDGE_PUZZLE_KEY_ENABLED": os.getenv("EDGE_PUZZLE_KEY_ENABLED", "false"),
+            "EDGE_PUZZLE_KEY_MODE": os.getenv("EDGE_PUZZLE_KEY_MODE", "combined"),
+            "EDGE_PUZZLE_KEY_NIGHT_SESSION": os.getenv("EDGE_PUZZLE_KEY_NIGHT_SESSION", "18:00-07:00"),
+            "EDGE_PUZZLE_KEY_DAY_SESSION": os.getenv("EDGE_PUZZLE_KEY_DAY_SESSION", "07:00-15:00"),
+            "EDGE_PUZZLE_KEY_NIGHT_BAR_MINUTES": os.getenv("EDGE_PUZZLE_KEY_NIGHT_BAR_MINUTES", "105"),
+            "EDGE_PUZZLE_KEY_DAY_BAR_MINUTES": os.getenv("EDGE_PUZZLE_KEY_DAY_BAR_MINUTES", "60"),
+            "EDGE_PUZZLE_KEY_REVERSAL_LOOKBACK": os.getenv("EDGE_PUZZLE_KEY_REVERSAL_LOOKBACK", "3"),
+            "EDGE_PUZZLE_KEY_ATR_PERIOD": os.getenv("EDGE_PUZZLE_KEY_ATR_PERIOD", "14"),
+            "EDGE_PUZZLE_KEY_ATR_MULTIPLIER": os.getenv("EDGE_PUZZLE_KEY_ATR_MULTIPLIER", "0.75"),
+            "EDGE_PUZZLE_KEY_TREND_PERIOD": os.getenv("EDGE_PUZZLE_KEY_TREND_PERIOD", "20"),
+            "EDGE_PUZZLE_KEY_TRADE_DIRECTION": os.getenv("EDGE_PUZZLE_KEY_TRADE_DIRECTION", "both"),
+            "EDGE_PUZZLE_KEY_CONFIDENCE_FLOOR": os.getenv("EDGE_PUZZLE_KEY_CONFIDENCE_FLOOR", "0.55"),
+            "EDGE_PUZZLE_KEY_NO_NEW_ENTRIES_AFTER": os.getenv("EDGE_PUZZLE_KEY_NO_NEW_ENTRIES_AFTER", ""),
+        },
+        "automation": automation,
+        "backtest": {
+            "endpoint": "/api/backtest/run",
+            "strategy": "puzzle_key_strategy",
+        },
+    }
 
 
 @api_router.get("/strategies/{strategy_name}")
@@ -1265,6 +1764,7 @@ async def list_commands(limit: int = 10):
 @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
 async def metrics():
     """Prometheus text-format scrape endpoint."""
+    _refresh_readiness_metrics()
     return generate_latest(REGISTRY).decode("utf-8")
 
 
@@ -1289,6 +1789,15 @@ app.add_middleware(
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[
+        "Retry-After",
+        "RateLimit-Limit",
+        "RateLimit-Remaining",
+        "RateLimit-Reset",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+    ],
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1457,7 +1966,7 @@ def _open_browser_when_ready(url: str, timeout_seconds: float = 30.0) -> None:
         import webbrowser
 
         deadline = time.time() + timeout_seconds
-        health_url = f"{url.rstrip('/')}/api/health"
+        health_url = f"{url.rstrip('/')}/api/ready"
         while time.time() < deadline:
             try:
                 with urllib.request.urlopen(health_url, timeout=1):

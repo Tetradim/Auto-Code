@@ -75,11 +75,35 @@ export interface CorrelationCluster {
 }
 
 export interface MonteCarloResult {
+  status?: string;
+  method?: string;
+  confidence_level?: number;
   simulations: number;
   median_final_equity: number;
   worst_case_equity: number;
+  best_case_equity?: number;
   probability_of_profit: number;
+  probability_of_ruin?: number;
   mean_max_drawdown: number;
+  value_at_risk?: number;
+  value_at_risk_pct?: number;
+  conditional_value_at_risk?: number;
+  conditional_value_at_risk_pct?: number;
+  max_drawdown_percentiles?: {
+    p50: number;
+    p95: number;
+    p99: number;
+  };
+  saved_chart_set?: {
+    run_id: string;
+    chart_count: number;
+    manifest_path: string;
+    charts: {
+      name: string;
+      path: string;
+      api_path?: string;
+    }[];
+  };
 }
 
 export interface BacktestResult {

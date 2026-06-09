@@ -26,11 +26,31 @@ interface BacktestResult {
   max_drawdown_pct: number;
   symbol: string;
   monte_carlo?: {
+    status?: string;
+    method?: string;
+    confidence_level?: number;
     simulations: number;
     median_final_equity: number;
     worst_case_equity: number;
+    best_case_equity?: number;
     probability_of_profit: number;
+    probability_of_ruin?: number;
     mean_max_drawdown: number;
+    value_at_risk?: number;
+    value_at_risk_pct?: number;
+    conditional_value_at_risk?: number;
+    conditional_value_at_risk_pct?: number;
+    max_drawdown_percentiles?: {
+      p50: number;
+      p95: number;
+      p99: number;
+    };
+    saved_chart_set?: {
+      run_id: string;
+      chart_count: number;
+      manifest_path: string;
+      charts: { name: string; path: string; api_path?: string }[];
+    };
   };
 }
 
@@ -173,9 +193,22 @@ const BacktestResultsChart: React.FC<{ results: BacktestResult }> = ({ results }
       {/* Monte Carlo Risk Analysis */}
       {results.monte_carlo && (
         <div className="mt-10 bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
-          <h3 className="text-lg font-semibold mb-6">
-            Monte Carlo Risk Analysis ({results.monte_carlo.simulations} simulations)
-          </h3>
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h3 className="text-lg font-semibold">
+                Monte Carlo Risk Analysis ({results.monte_carlo.simulations} simulations)
+              </h3>
+              <div className="text-xs text-zinc-500 mt-1">
+                {(results.monte_carlo.method || 'bootstrap').replace('_', ' ')} method at{' '}
+                {Math.round((results.monte_carlo.confidence_level || 0.95) * 100)}% confidence
+              </div>
+            </div>
+            {results.monte_carlo.status && (
+              <span className="text-xs uppercase tracking-wide text-zinc-400 border border-zinc-700 rounded px-2 py-1">
+                {results.monte_carlo.status}
+              </span>
+            )}
+          </div>
           
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             <div className="bg-zinc-800 p-5 rounded-2xl">
@@ -202,7 +235,77 @@ const BacktestResultsChart: React.FC<{ results: BacktestResult }> = ({ results }
                 -{results.monte_carlo.mean_max_drawdown}%
               </div>
             </div>
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">Value at Risk</div>
+              <div className="text-3xl font-mono text-red-300 mt-2">
+                ${(results.monte_carlo.value_at_risk || 0).toLocaleString()}
+              </div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {(results.monte_carlo.value_at_risk_pct || 0).toFixed(2)}%
+              </div>
+            </div>
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">Expected Shortfall</div>
+              <div className="text-3xl font-mono text-red-300 mt-2">
+                ${(results.monte_carlo.conditional_value_at_risk || 0).toLocaleString()}
+              </div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {(results.monte_carlo.conditional_value_at_risk_pct || 0).toFixed(2)}%
+              </div>
+            </div>
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">Ruin Probability</div>
+              <div className="text-3xl font-mono text-orange-300 mt-2">
+                {results.monte_carlo.probability_of_ruin || 0}%
+              </div>
+            </div>
+            <div className="bg-zinc-800 p-5 rounded-2xl">
+              <div className="text-zinc-400 text-sm">Drawdown p95</div>
+              <div className="text-3xl font-mono text-orange-300 mt-2">
+                -{results.monte_carlo.max_drawdown_percentiles?.p95 || 0}%
+              </div>
+            </div>
           </div>
+
+          {results.monte_carlo.saved_chart_set && (
+            <div className="mt-6 border border-zinc-800 rounded-2xl p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-white">Saved Chart Bundle</h4>
+                  <div className="text-xs text-zinc-500 mt-1">
+                    {results.monte_carlo.saved_chart_set.chart_count} chart datasets saved for{' '}
+                    {results.monte_carlo.saved_chart_set.run_id}
+                  </div>
+                </div>
+                <code className="text-xs text-zinc-400 break-all text-right">
+                  {results.monte_carlo.saved_chart_set.manifest_path}
+                </code>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-4">
+                {results.monte_carlo.saved_chart_set.charts.map((chart) => (
+                  <div key={chart.name} className="text-xs bg-zinc-800 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="text-zinc-200">{chart.name.replace(/_/g, ' ')}</div>
+                      {chart.api_path && (
+                        <a
+                          href={chart.api_path}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 text-blue-300 hover:text-blue-200"
+                        >
+                          Open JSON
+                        </a>
+                      )}
+                    </div>
+                    {chart.api_path && (
+                      <div className="text-blue-400 break-all mt-1">{chart.api_path}</div>
+                    )}
+                    <div className="text-zinc-500 break-all mt-1">{chart.path}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

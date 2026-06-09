@@ -557,6 +557,32 @@ class EvaluationScheduler:
                                 symbol=symbol,
                                 action=plugin_signal.action,
                             ).inc()
+                            if plugin_signal.metadata.get("plugin") == "puzzle_key_strategy":
+                                plugin_action = (
+                                    AutomationAction.BUY
+                                    if plugin_signal.action == "BUY"
+                                    else AutomationAction.STOP_BUYING
+                                )
+                                plugin_handoff_sent = await self._handoff_to_pulse(
+                                    symbol=symbol,
+                                    action=plugin_action,
+                                    confidence=plugin_signal.confidence,
+                                    reason="Puzzle Key Strategy plugin signal",
+                                    orb_session="puzzle_key",
+                                    metadata={
+                                        **plugin_signal.metadata,
+                                        "price": plugin_signal.price,
+                                        "atr": plugin_signal.atr,
+                                        "reason": plugin_signal.reason,
+                                    },
+                                )
+                                if plugin_handoff_sent:
+                                    logger.info(
+                                        "Puzzle Key Strategy handoff sent for %s action=%s conf=%.2f",
+                                        symbol,
+                                        plugin_action.value,
+                                        plugin_signal.confidence,
+                                    )
                             logger.info(
                                 "🔌 Plugin [%s] → %s %s conf=%.2f: %s",
                                 plugin.name, plugin_signal.action, symbol,
@@ -619,6 +645,21 @@ class EvaluationScheduler:
             dca=dca,
             metadata=metadata or {},
         )
+        market = self.market_hours.get_market_for_symbol(command.symbol)
+        market_status = self.market_hours.market_status(market)
+        if not market_status.get("open", False):
+            market_reason = market_status.get("reason", "closed")
+            gate_reason = f"market_closed:{market_reason}"
+            command.metadata.update({"market_status": market_status})
+            self.automation.record_suppressed(command, gate_reason)
+            logger.debug(
+                "Pulse handoff suppressed for %s %s: %s",
+                symbol,
+                action.value,
+                gate_reason,
+            )
+            return False
+
         allowed, gate_reason = self.automation.plan(command)
         if not allowed:
             logger.debug(

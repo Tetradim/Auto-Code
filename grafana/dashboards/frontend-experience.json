@@ -1,0 +1,308 @@
+{
+  "title": "Sentinel Edge - Frontend Experience",
+  "uid": "se-frontend-experience",
+  "tags": ["sentinel-edge", "frontend-experience", "rum", "web-vitals"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": {"from": "now-6h", "to": "now"},
+  "description": "Real-user frontend responsiveness, paint, layout stability, slow interaction, and long-task telemetry from the Sentinel Edge UI.",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {"text": "Prometheus", "value": "Prometheus"}
+      },
+      {
+        "name": "route",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "query": "label_values(edge_frontend_rum_samples_total, route)",
+        "multi": true,
+        "includeAll": true,
+        "current": {"text": "All", "value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "RUM Ingest Rate",
+      "description": "Browser snapshots accepted by the Edge backend per minute.",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(edge_frontend_rum:ingest_rate_per_minute{route=~\"$route\"})"}
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "background",
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "red"},
+              {"value": 0.01, "color": "green"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "INP",
+      "description": "Latest Interaction to Next Paint-style responsiveness signal reported by the UI.",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(edge_frontend_web_vital_value{route=~\"$route\",metric=\"inp\"})"}
+      ],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 200, "color": "yellow"},
+              {"value": 500, "color": "red"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "LCP",
+      "description": "Latest Largest Contentful Paint reported by the UI.",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(edge_frontend_web_vital_value{route=~\"$route\",metric=\"lcp\"})"}
+      ],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 2500, "color": "yellow"},
+              {"value": 4000, "color": "red"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "CLS",
+      "description": "Latest Cumulative Layout Shift score reported by the UI.",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(edge_frontend_web_vital_value{route=~\"$route\",metric=\"cls\"})"}
+      ],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 0.1, "color": "yellow"},
+              {"value": 0.25, "color": "red"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Web Vitals by Route",
+      "description": "Latest Web Vital values over time. INP, LCP, FCP, and TTFB are milliseconds; CLS is a unitless score.",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "edge_frontend_web_vital_value{route=~\"$route\"}",
+          "legendFormat": "{{route}} {{metric}} {{rating}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"}
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Slow Interaction p95",
+      "description": "p95 slow interaction duration from frontend Event Timing observations.",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "edge_frontend_slow_interaction:p95_ms{route=~\"$route\"}",
+          "legendFormat": "{{route}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 200, "color": "yellow"},
+              {"value": 500, "color": "red"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Long Task p95",
+      "description": "p95 duration for frontend long tasks observed in the browser main thread.",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "edge_frontend_long_task:p95_ms{route=~\"$route\"}",
+          "legendFormat": "{{route}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 100, "color": "yellow"},
+              {"value": 500, "color": "red"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "RUM Samples by Route",
+      "description": "Accepted browser snapshots per route in the selected range.",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (increase(edge_frontend_rum_samples_total{route=~\"$route\"}[$__range]))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      },
+      "fieldConfig": {
+        "defaults": {"unit": "short", "decimals": 0}
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Telemetry Freshness",
+      "description": "Seconds since the Edge backend accepted its latest frontend RUM snapshot.",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "edge_frontend_rum:freshness_seconds"}
+      ],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 300, "color": "yellow"},
+              {"value": 1800, "color": "red"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Active RUM Routes",
+      "description": "Number of normalized routes currently tracked by the Edge RUM status registry.",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "edge_frontend_rum_active_routes"}
+      ],
+      "options": {"graphMode": "area", "colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "decimals": 0}
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Dropped RUM Metrics",
+      "description": "Frontend RUM metric samples rejected by the Edge backend before Prometheus export, grouped by drop reason.",
+      "gridPos": {"x": 0, "y": 24, "w": 24, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (increase(edge_frontend_rum_dropped_metrics_total[$__range]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "background",
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 1, "color": "yellow"}
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

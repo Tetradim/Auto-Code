@@ -22,7 +22,31 @@ route:
 
   routes:
 
-    # 1. Critical risk events → immediate Pulse override (no continue)
+    # 1. Pulse dependency SLO alerts -> human/operator notification only.
+    # Keep this before the broad critical route so broker-health alerts never
+    # trigger the automated Pulse override webhook.
+    - matchers:
+        - slo = "pulse-api-availability"
+      receiver: 'broker-slo-alerts'
+      group_by: ['alertname', 'slo', 'severity']
+      group_wait: 20s
+      group_interval: 5m
+      repeat_interval: 1h
+      continue: false
+
+    # 1a. Automation delivery failures -> human/operator notification only.
+    # Keep this before the broad critical route so failed handoff delivery does
+    # not attempt another Pulse override while Pulse delivery is impaired.
+    - matchers:
+        - component = "automation"
+      receiver: 'automation-alerts'
+      group_by: ['alertname', 'action', 'mode', 'reason', 'severity']
+      group_wait: 10s
+      group_interval: 2m
+      repeat_interval: 30m
+      continue: false
+
+    # 1. Critical risk events -> immediate Pulse override (no continue)
     - matchers:
         - severity = "critical"
       receiver: 'pulse-override'
@@ -72,6 +96,7 @@ route:
       receiver: 'regime-alerts'
       group_interval: 15m
       repeat_interval: 4h
+      continue: false
       mute_time_intervals:
         - outside_trading_hours
 
@@ -83,7 +108,28 @@ route:
 # ─────────────────────────────────────────────────────────────────────────────
 receivers:
 
-  # Pulse override — calls Sentinel Edge webhook which calls send_override()
+  # Automation alerts are delivery-health signals, not Pulse override commands.
+  - name: 'automation-alerts'
+    slack_configs:
+      - api_url: '$SLACK_WEBHOOK_URL'
+        channel: '#trading-alerts'
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}Automation Handoff{{ else }}RESOLVED Automation Handoff{{ end }} {{ .GroupLabels.alertname }}'
+        text: >-
+          *Severity:* {{ .CommonLabels.severity | title }}
+          *Action:* {{ .CommonLabels.action }}
+          *Mode:* {{ .CommonLabels.mode }}
+          *Reason:* {{ .CommonLabels.reason }}
+          {{ range .Alerts }}- {{ .Annotations.summary }} Runbook: {{ .Annotations.runbook_url }}{{ end }}
+    webhook_configs:
+      - url: 'http://sentinel-edge:8001/api/webhook/general'
+        send_resolved: true
+        http_config:
+          basic_auth:
+            username: 'sentinel-edge'
+            password: '$WEBHOOK_SECRET'
+
+  # Pulse override - calls Sentinel Edge webhook which calls send_override()
   - name: 'pulse-override'
     webhook_configs:
       - url: 'http://sentinel-edge:8001/api/webhook/pulse-override'
@@ -107,6 +153,25 @@ receivers:
             password: '$WEBHOOK_SECRET'
 
   # Trading team — Slack + email
+  # Broker SLO alerts are dependency-health signals, not automated risk actions.
+  - name: 'broker-slo-alerts'
+    slack_configs:
+      - api_url: '$SLACK_WEBHOOK_URL'
+        channel: '#trading-alerts'
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}Pulse API SLO{{ else }}RESOLVED Pulse API SLO{{ end }} {{ .GroupLabels.alertname }}'
+        text: >-
+          *Severity:* {{ .CommonLabels.severity | title }}
+          *SLO:* {{ .CommonLabels.slo }}
+          {{ range .Alerts }}- {{ .Annotations.summary }} Runbook: {{ .Annotations.runbook_url }}{{ end }}
+    webhook_configs:
+      - url: 'http://sentinel-edge:8001/api/webhook/general'
+        send_resolved: true
+        http_config:
+          basic_auth:
+            username: 'sentinel-edge'
+            password: '$WEBHOOK_SECRET'
+
   - name: 'trading-team'
     slack_configs:
       - api_url: '$SLACK_WEBHOOK_URL'
@@ -152,6 +217,17 @@ receivers:
 # INHIBITION RULES (Smart silencing)
 # ─────────────────────────────────────────────────────────────────────────────
 inhibit_rules:
+
+  # Suppress the slower Pulse API SLO warning while the fast-burn critical
+  # alert is active for the same SLO. This avoids duplicate notifications for
+  # the same dependency incident while keeping the critical alert visible.
+  - source_matchers:
+      - alertname = "PulseApiSloFastBurn"
+      - slo = "pulse-api-availability"
+    target_matchers:
+      - alertname = "PulseApiSloSlowBurn"
+      - slo = "pulse-api-availability"
+    equal: ['slo']
 
   # Suppress warnings when a critical fires for the same direction
   - source_matchers:

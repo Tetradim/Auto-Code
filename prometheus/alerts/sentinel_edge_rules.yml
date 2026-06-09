@@ -15,6 +15,7 @@ groups:
         annotations:
           summary: "Circuit breaker is OPEN for {{ $labels.broker_id }}"
           description: "The circuit breaker for {{ $labels.broker_id }} has been open for 30 seconds, indicating persistent failures in API calls."
+          runbook_url: "docs/runbooks/pulse-circuit-breaker.md"
       
       - alert: CircuitBreakerHalfOpen
         expr: broker_circuit_state{broker_id="pulse"} == 1
@@ -25,6 +26,7 @@ groups:
         annotations:
           summary: "Circuit breaker is HALF_OPEN for {{ $labels.broker_id }}"
           description: "The circuit breaker is testing if {{ $labels.broker_id }} has recovered."
+          runbook_url: "docs/runbooks/pulse-circuit-breaker.md"
       
       # ════════════════════════════════════════════════════════════════
       # TRADING ALERTS
@@ -39,6 +41,7 @@ groups:
         annotations:
           summary: "Auto-stop triggered for {{ $labels.symbol }}"
           description: "Emergency exit decision made for {{ $labels.symbol }} due to excessive losses or risk."
+          runbook_url: "docs/runbooks/auto-stop-triggered.md"
       
       - alert: ConsecutiveLossesWarning
         expr: edge_consecutive_losses >= 3
@@ -49,6 +52,7 @@ groups:
         annotations:
           summary: "{{ $labels.symbol }} has {{ $value }} consecutive losses"
           description: "Ticker {{ $labels.symbol }} has hit {{ $value }} consecutive losses. Risk management may trigger soon."
+          runbook_url: "docs/runbooks/consecutive-losses.md"
       
       - alert: ConsecutiveLossesCritical
         expr: edge_consecutive_losses >= 5
@@ -59,6 +63,7 @@ groups:
         annotations:
           summary: "CRITICAL: {{ $labels.symbol }} has {{ $value }} consecutive losses"
           description: "Ticker {{ $labels.symbol }} has {{ $value }} consecutive losses. Immediate action required."
+          runbook_url: "docs/runbooks/consecutive-losses.md"
       
       # ════════════════════════════════════════════════════════════════
       # BROKER HEALTH ALERTS
@@ -97,6 +102,86 @@ groups:
         annotations:
           summary: "Sentinel Edge engine is not running"
           description: "The main evaluation engine has stopped. No ticker analysis is being performed."
+          runbook_url: "docs/runbooks/engine-not-running.md"
+
+      - alert: EdgeRuntimeNotReady
+        expr: edge_readiness_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: engine
+        annotations:
+          summary: "Sentinel Edge runtime is not ready"
+          description: "Edge has been reporting not-ready for 2 minutes. Check /api/ready for the failing dependency check before enabling automation."
+          runbook_url: "docs/runbooks/edge-runtime-not-ready.md"
+
+      - alert: EdgeReadinessCheckFailed
+        expr: edge_readiness_check_status{check!="demo_mode"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: engine
+        annotations:
+          summary: "Sentinel Edge readiness check failed: {{ $labels.check }}"
+          description: "The {{ $labels.check }} readiness check has been failing for 2 minutes. Check /api/ready and the Edge runtime readiness runbook before enabling automation."
+          runbook_url: "docs/runbooks/edge-runtime-not-ready.md"
+
+      - alert: ApiRateLimitRejections
+        expr: edge_rate_limit_rejections:rate5m{scope="api"} > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Sentinel Edge API is rejecting requests"
+          description: "The Edge API rejected {{ $value }} requests in the last 5 minutes because the in-memory rate limit was exceeded."
+          runbook_url: "docs/runbooks/api-rate-limit-rejections.md"
+
+      - alert: ApiRateLimitBucketPressure
+        expr: edge_rate_limit_tracked_clients:max5m > 500
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Sentinel Edge API rate limiter is tracking many clients"
+          description: "Tracked API rate-limit buckets stayed above 500 for at least 5 minutes. This can indicate scan traffic, runaway automation, or a stale bucket pruning regression."
+          runbook_url: "docs/runbooks/api-rate-limit-bucket-pressure.md"
+
+      - alert: EdgeAutomationHandoffFailures
+        expr: edge_automation_handoffs:rate5m{result="failed"} > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: automation
+        annotations:
+          summary: "Edge automation handoff failures: {{ $labels.action }} {{ $labels.mode }}"
+          description: "Edge-to-Pulse handoff delivery has failed for action={{ $labels.action }}, mode={{ $labels.mode }}, reason={{ $labels.reason }} for at least 2 minutes. Pause autonomous handoff and check Pulse connectivity before allowing automation to continue."
+          runbook_url: "docs/runbooks/automation-handoff-failures.md"
+
+      - alert: PulseApiSloFastBurn
+        expr: edge_api_availability:burn_rate1h > 14.4 and edge_api_availability:burn_rate5m > 14.4
+        for: 2m
+        labels:
+          severity: critical
+          component: broker
+          slo: pulse-api-availability
+        annotations:
+          summary: "Pulse API availability error budget is burning fast"
+          description: "Pulse API failures are burning the 99% availability budget at >14.4x across both 1h and 5m windows. Check broker health, retries, and circuit breaker state."
+          runbook_url: "docs/runbooks/pulse-api-slo-burn.md"
+
+      - alert: PulseApiSloSlowBurn
+        expr: edge_api_availability:burn_rate6h > 6 and edge_api_availability:burn_rate30m > 6
+        for: 15m
+        labels:
+          severity: warning
+          component: broker
+          slo: pulse-api-availability
+        annotations:
+          summary: "Pulse API availability error budget is burning slowly"
+          description: "Pulse API failures are burning the 99% availability budget at >6x across both 6h and 30m windows. Investigate before the dependency becomes a trading reliability issue."
+          runbook_url: "docs/runbooks/pulse-api-slo-burn.md"
       
       # ════════════════════════════════════════════════════════════════
       # DRAWDOWN ALERTS
@@ -111,6 +196,7 @@ groups:
         annotations:
           summary: "{{ $labels.symbol }} drawdown at {{ $value }}%"
           description: "Ticker {{ $labels.symbol }} has a drawdown of {{ $value }}%, approaching risk threshold."
+          runbook_url: "docs/runbooks/drawdown-risk.md"
       
       - alert: DrawdownCritical
         expr: ticker_drawdown_percent > 10
@@ -121,6 +207,7 @@ groups:
         annotations:
           summary: "CRITICAL drawdown for {{ $labels.symbol }}: {{ $value }}%"
           description: "Ticker {{ $labels.symbol }} has exceeded maximum drawdown threshold at {{ $value }}%."
+          runbook_url: "docs/runbooks/drawdown-risk.md"
       
       # ════════════════════════════════════════════════════════════════
       # ORB BREAKOUT ALERTS
@@ -137,6 +224,76 @@ groups:
           description: "{{ $labels.symbol }} broke {{ $labels.direction }} on {{ $labels.timeframe }} timeframe."
       
       # ════════════════════════════════════════════════════════════════
+      # FRONTEND EXPERIENCE ALERTS
+      # ════════════════════════════════════════════════════════════════
+
+      - alert: FrontendRumIngestMissing
+        expr: absent_over_time(edge_frontend_rum_samples_total[30m]) or edge_frontend_rum:freshness_seconds > 1800
+        for: 15m
+        labels:
+          severity: warning
+          component: frontend
+        annotations:
+          summary: "Frontend RUM ingestion has stopped"
+          description: "No Sentinel Edge browser RUM snapshots have reached Prometheus for at least 30 minutes, or the 15-minute ingest rate is zero."
+          runbook_url: "docs/runbooks/frontend-rum-ingest-missing.md"
+
+      - alert: FrontendINPPoor
+        expr: edge_frontend_web_vital_value{metric="inp"} > 500
+        for: 10m
+        labels:
+          severity: critical
+          component: frontend
+        annotations:
+          summary: "Poor frontend responsiveness on {{ $labels.route }}"
+          description: "INP-style responsiveness is {{ $value }}ms on {{ $labels.route }}, above the poor threshold of 500ms."
+          runbook_url: "docs/runbooks/frontend-core-web-vitals.md"
+
+      - alert: FrontendLCPPoor
+        expr: edge_frontend_web_vital_value{metric="lcp"} > 4000
+        for: 10m
+        labels:
+          severity: warning
+          component: frontend
+        annotations:
+          summary: "Poor frontend load experience on {{ $labels.route }}"
+          description: "Largest Contentful Paint is {{ $value }}ms on {{ $labels.route }}, above the poor threshold of 4000ms."
+          runbook_url: "docs/runbooks/frontend-core-web-vitals.md"
+
+      - alert: FrontendCLSPoor
+        expr: edge_frontend_web_vital_value{metric="cls"} > 0.25
+        for: 10m
+        labels:
+          severity: warning
+          component: frontend
+        annotations:
+          summary: "Poor frontend layout stability on {{ $labels.route }}"
+          description: "Cumulative Layout Shift is {{ $value }} on {{ $labels.route }}, above the poor threshold of 0.25."
+          runbook_url: "docs/runbooks/frontend-core-web-vitals.md"
+
+      - alert: FrontendSlowInteractionP95High
+        expr: edge_frontend_slow_interaction:p95_ms > 500
+        for: 10m
+        labels:
+          severity: warning
+          component: frontend
+        annotations:
+          summary: "Frontend slow interaction p95 is high on {{ $labels.route }}"
+          description: "p95 browser interaction duration is {{ $value }}ms on {{ $labels.route }}, above 500ms."
+          runbook_url: "docs/runbooks/frontend-core-web-vitals.md"
+
+      - alert: FrontendRumDroppedMetrics
+        expr: increase(edge_frontend_rum_dropped_metrics_total{reason="unknown_metric"}[15m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: frontend
+        annotations:
+          summary: "Frontend RUM metrics are being dropped"
+          description: "The Edge backend dropped {{ $value }} frontend RUM metric samples in the last 15 minutes because their metric names were not allow-listed."
+          runbook_url: "docs/runbooks/frontend-rum-dropped-metrics.md"
+
+      # ════════════════════════════════════════════════════════════════
       # SIDECAR AVAILABILITY
       # ════════════════════════════════════════════════════════════════
       
@@ -149,3 +306,4 @@ groups:
         annotations:
           summary: "Sentinel Edge sidecar is down"
           description: "The Sentinel Edge service is not responding to health checks."
+          runbook_url: "docs/runbooks/sidecar-down.md"

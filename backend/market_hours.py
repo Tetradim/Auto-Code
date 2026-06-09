@@ -1,6 +1,6 @@
 """Market Hours Tracker for Global Markets"""
 import logging
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Dict, Optional, Tuple
 import pytz
 from metrics import market_open_status, market_lunch_break, market_minutes_to_close
@@ -9,6 +9,48 @@ logger = logging.getLogger(__name__)
 
 # Default market if none specified (US equity)
 DEFAULT_MARKET = "NYSE"
+US_EQUITY_MARKETS = {"NYSE", "NASDAQ"}
+US_EQUITY_HOLIDAYS = {
+    # NYSE/Nasdaq full-day closures for 2026.
+    date(2026, 1, 1),
+    date(2026, 1, 19),
+    date(2026, 2, 16),
+    date(2026, 4, 3),
+    date(2026, 5, 25),
+    date(2026, 6, 19),
+    date(2026, 7, 3),
+    date(2026, 9, 7),
+    date(2026, 11, 26),
+    date(2026, 12, 25),
+    # Published NYSE closures for 2027.
+    date(2027, 1, 1),
+    date(2027, 1, 18),
+    date(2027, 2, 15),
+    date(2027, 3, 26),
+    date(2027, 5, 31),
+    date(2027, 6, 18),
+    date(2027, 7, 5),
+    date(2027, 9, 6),
+    date(2027, 11, 25),
+    date(2027, 12, 24),
+    # Published NYSE closures for 2028.
+    date(2028, 1, 17),
+    date(2028, 2, 21),
+    date(2028, 4, 14),
+    date(2028, 5, 29),
+    date(2028, 6, 19),
+    date(2028, 7, 4),
+    date(2028, 9, 4),
+    date(2028, 11, 23),
+    date(2028, 12, 25),
+}
+US_EQUITY_EARLY_CLOSES = {
+    date(2026, 11, 27): time(13, 0),
+    date(2026, 12, 24): time(13, 0),
+    date(2027, 11, 26): time(13, 0),
+    date(2028, 7, 3): time(13, 0),
+    date(2028, 11, 24): time(13, 0),
+}
 
 
 class MarketHours:
@@ -134,41 +176,20 @@ class MarketHours:
         # Default fallback
         return DEFAULT_MARKET
     
-    def is_market_open(self, market: Optional[str] = None) -> bool:
+    def is_market_open(self, market: Optional[str] = None, now: Optional[datetime] = None) -> bool:
         """Check if market is currently open.
         
         Args:
             market: Market name (e.g., "NYSE"). If None, checks default (NYSE).
+            now: Optional datetime for deterministic checks. Naive values are
+                interpreted in the market's local timezone.
             
         Returns:
             True if market is open, False otherwise
         """
-        market = market or DEFAULT_MARKET
-        
-        if market not in self.MARKETS:
-            return False
-        
-        # Crypto markets are 24/7
-        if market == "CRYPTO":
-            return True
-        
-        info = self.MARKETS[market]
-        tz = self.timezones[market]
-        now = datetime.now(tz).time()
-        
-        # Check if within trading hours
-        if not (info["open"] <= now <= info["close"]):
-            return False
-        
-        # Check lunch break
-        if info["lunch"]:
-            lunch_start, lunch_end = info["lunch"]
-            if lunch_start <= now <= lunch_end:
-                return False
-        
-        return True
+        return bool(self.market_status(market, now=now)["open"])
     
-    def is_symbol_tradeable(self, symbol: str) -> bool:
+    def is_symbol_tradeable(self, symbol: str, now: Optional[datetime] = None) -> bool:
         """Check if a symbol's market is currently open.
         
         This is the method scheduler should call - it handles the
@@ -181,9 +202,9 @@ class MarketHours:
             True if the symbol's market is open
         """
         market = self.get_market_for_symbol(symbol)
-        return self.is_market_open(market)
+        return self.is_market_open(market, now=now)
     
-    def is_lunch_break(self, market: str) -> bool:
+    def is_lunch_break(self, market: str, now: Optional[datetime] = None) -> bool:
         """Check if market is in lunch break"""
         if market not in self.MARKETS:
             return False
@@ -192,23 +213,21 @@ class MarketHours:
         if not info["lunch"]:
             return False
         
-        tz = self.timezones[market]
-        now = datetime.now(tz).time()
+        now = self._market_now(market, now).time()
         lunch_start, lunch_end = info["lunch"]
         
         return lunch_start <= now <= lunch_end
     
-    def minutes_to_close(self, market: str) -> int:
+    def minutes_to_close(self, market: str, now: Optional[datetime] = None) -> int:
         """Get minutes until market close"""
         if market not in self.MARKETS:
             return 0
         
         info = self.MARKETS[market]
-        tz = self.timezones[market]
-        now = datetime.now(tz)
+        now = self._market_now(market, now)
         
         # Create close datetime for today
-        close_time = info["close"]
+        close_time = self._close_time_for(market, now.date(), info["close"])
         close_dt = now.replace(hour=close_time.hour, minute=close_time.minute, second=0, microsecond=0)
         
         if now > close_dt:
@@ -216,6 +235,63 @@ class MarketHours:
         
         delta = close_dt - now
         return int(delta.total_seconds() / 60)
+
+    def market_status(self, market: Optional[str] = None, now: Optional[datetime] = None) -> Dict:
+        """Return market-open state with a machine-readable reason."""
+        market = market or DEFAULT_MARKET
+
+        if market not in self.MARKETS:
+            return {
+                "market": market,
+                "open": False,
+                "reason": "unknown_market",
+                "lunch_break": False,
+                "minutes_to_close": 0,
+            }
+
+        info = self.MARKETS[market]
+        local_now = self._market_now(market, now)
+        market_date = local_now.date()
+        current_time = local_now.time()
+        open_time = info["open"]
+        close_time = self._close_time_for(market, market_date, info["close"])
+        lunch_break = self.is_lunch_break(market, now=local_now)
+
+        reason = "open"
+        is_open = True
+
+        if market == "CRYPTO":
+            is_open = True
+            reason = "open"
+        elif market in US_EQUITY_MARKETS and local_now.weekday() >= 5:
+            is_open = False
+            reason = "weekend"
+        elif market in US_EQUITY_MARKETS and market_date in US_EQUITY_HOLIDAYS:
+            is_open = False
+            reason = "holiday"
+        elif current_time < open_time:
+            is_open = False
+            reason = "before_open"
+        elif current_time > close_time:
+            is_open = False
+            reason = "after_close"
+        elif lunch_break:
+            is_open = False
+            reason = "lunch_break"
+
+        return {
+            "market": market,
+            "name": info["name"],
+            "timezone": info["timezone"],
+            "open": is_open,
+            "reason": reason,
+            "date": market_date.isoformat(),
+            "time": local_now.strftime("%H:%M:%S"),
+            "open_time": open_time.strftime("%H:%M"),
+            "close": close_time.strftime("%H:%M"),
+            "lunch_break": lunch_break,
+            "minutes_to_close": self.minutes_to_close(market, now=local_now) if is_open else 0,
+        }
     
     def update_metrics(self):
         """Update Prometheus metrics for all markets"""
@@ -232,9 +308,19 @@ class MarketHours:
         """Get status of all markets"""
         status = {}
         for market in self.MARKETS.keys():
-            status[market] = {
-                "open": self.is_market_open(market),
-                "lunch_break": self.is_lunch_break(market),
-                "minutes_to_close": self.minutes_to_close(market)
-            }
+            status[market] = self.market_status(market)
         return status
+
+    def _market_now(self, market: str, now: Optional[datetime] = None) -> datetime:
+        tz = self.timezones[market]
+        if now is None:
+            return datetime.now(tz)
+        if now.tzinfo is None:
+            return tz.localize(now)
+        return now.astimezone(tz)
+
+    @staticmethod
+    def _close_time_for(market: str, market_date: date, regular_close: time) -> time:
+        if market in US_EQUITY_MARKETS:
+            return US_EQUITY_EARLY_CLOSES.get(market_date, regular_close)
+        return regular_close

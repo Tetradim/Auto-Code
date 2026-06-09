@@ -16,6 +16,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from metrics import edge_automation_handoffs_total
+
 
 class AutomationMode(str, Enum):
     RECOMMEND_ONLY = "recommend_only"
@@ -115,6 +117,20 @@ class HandoffCommand:
         }
 
 
+def _metric_reason(reason: str) -> str:
+    reason = str(reason or "unknown").lower()
+    return reason.replace(":", "_")
+
+
+def _record_handoff_metric(command: HandoffCommand, result: str, reason: str) -> None:
+    edge_automation_handoffs_total.labels(
+        action=command.action.value,
+        mode=command.mode.value,
+        result=result,
+        reason=_metric_reason(reason),
+    ).inc()
+
+
 class AutomationController:
     """Runtime state and cooldowns for Pulse handoff."""
 
@@ -206,9 +222,14 @@ class AutomationController:
 
     def record_sent(self, command: HandoffCommand, sent: bool) -> None:
         self.last_handoff = {**command.payload(), "sent": sent}
+        if sent:
+            _record_handoff_metric(command, "sent", "pulse_accepted")
+        else:
+            _record_handoff_metric(command, "failed", "pulse_send_failed")
 
     def record_suppressed(self, command: HandoffCommand, reason: str) -> None:
         self.last_suppressed = {**command.payload(), "suppressed_reason": reason}
+        _record_handoff_metric(command, "suppressed", reason)
 
     def status(self) -> Dict[str, Any]:
         return {

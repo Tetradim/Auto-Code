@@ -32,6 +32,8 @@ interface HealthState {
   connected: boolean;
   loading: boolean;
   error: string | null;
+  live: any | null;
+  ready: any | null;
   health: any | null;
   stats: any | null;
   pulse: any | null;
@@ -48,6 +50,8 @@ const emptyState: HealthState = {
   connected: false,
   loading: true,
   error: null,
+  live: null,
+  ready: null,
   health: null,
   stats: null,
   pulse: null,
@@ -71,6 +75,15 @@ const formatAge = (iso: string | null) => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m ago`;
 };
 
+const formatDurationSeconds = (value: unknown) => {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return 'unknown';
+  if (seconds < 60) return `${Math.max(0, Math.floor(seconds))}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${Math.floor(seconds % 60)}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+};
+
 const statusBadge = (ok: boolean, text: string) => (
   <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
     ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'
@@ -85,7 +98,9 @@ export const AdvisorHealth: React.FC = () => {
 
   const load = async () => {
     try {
-      const [health, stats, pulse, killSwitch, providerHealth, providerCatalog, decisions, automation] = await Promise.allSettled([
+      const [live, ready, health, stats, pulse, killSwitch, providerHealth, providerCatalog, decisions, automation] = await Promise.allSettled([
+        api.getLiveness(),
+        api.getReadiness(),
         api.getHealth(),
         api.getStats(),
         api.getPulseStatus(),
@@ -97,9 +112,11 @@ export const AdvisorHealth: React.FC = () => {
       ]);
 
       setState({
-        connected: health.status === 'fulfilled',
+        connected: live.status === 'fulfilled' || health.status === 'fulfilled',
         loading: false,
         error: null,
+        live: live.status === 'fulfilled' ? live.value : null,
+        ready: ready.status === 'fulfilled' ? ready.value : null,
         health: health.status === 'fulfilled' ? health.value : null,
         stats: stats.status === 'fulfilled' ? stats.value : null,
         pulse: pulse.status === 'fulfilled' ? pulse.value : null,
@@ -139,6 +156,10 @@ export const AdvisorHealth: React.FC = () => {
   }, [state.fallbackOrder, state.providerMeta, state.providers]);
 
   const pulseConnected = Boolean(state.pulse?.available || state.health?.pulse_available);
+  const processAlive = state.live?.status === 'alive';
+  const readinessChecks = state.ready?.checks && typeof state.ready.checks === 'object' ? state.ready.checks : {};
+  const readinessFailures: string[] = Array.isArray(state.ready?.failing_checks) ? state.ready.failing_checks : [];
+  const runtimeReady = Boolean(state.ready?.ready);
   const paused = Boolean(state.health?.paused || state.stats?.paused);
   const running = Boolean(state.health?.running || state.stats?.running);
   const killSwitchActive = Boolean(state.killSwitch?.kill_switch_active);
@@ -165,13 +186,20 @@ export const AdvisorHealth: React.FC = () => {
         {state.error && <p className="mt-3 text-sm text-red-300">{state.error}</p>}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-6">
         <MetricCard
           title="Edge Service"
           value={state.connected ? (running ? 'Running' : 'Stopped') : 'Offline'}
-          subtitle={paused ? 'Scheduler paused' : 'Scheduler active'}
+          subtitle={processAlive ? `Process up ${formatDurationSeconds(state.live?.uptime_seconds)}` : 'Liveness unavailable'}
           icon={state.connected ? Activity : WifiOff}
           color={state.connected && running ? 'green' : 'red'}
+        />
+        <MetricCard
+          title="Runtime Readiness"
+          value={state.ready ? (runtimeReady ? 'Ready' : 'Blocked') : 'Unknown'}
+          subtitle={`${readinessFailures.length} failing readiness checks`}
+          icon={runtimeReady ? CheckCircle : AlertTriangle}
+          color={runtimeReady ? 'green' : state.ready ? 'red' : 'yellow'}
         />
         <MetricCard
           title="Pulse Link"
@@ -254,6 +282,14 @@ export const AdvisorHealth: React.FC = () => {
           </h3>
           <dl className="mt-4 space-y-3 text-sm">
             <div className="flex justify-between gap-3 border-b border-gray-800 pb-3">
+              <dt className="text-gray-500">Process</dt>
+              <dd className="font-medium text-white">{processAlive ? `Alive · ${formatDurationSeconds(state.live?.uptime_seconds)}` : 'Unknown'}</dd>
+            </div>
+            <div className="flex justify-between gap-3 border-b border-gray-800 pb-3">
+              <dt className="text-gray-500">Readiness</dt>
+              <dd className="font-medium text-white">{state.ready ? (runtimeReady ? 'Ready' : 'Blocked') : 'Unknown'}</dd>
+            </div>
+            <div className="flex justify-between gap-3 border-b border-gray-800 pb-3">
               <dt className="text-gray-500">Scheduler</dt>
               <dd className="font-medium text-white">{paused ? 'Paused' : running ? 'Active' : 'Stopped'}</dd>
             </div>
@@ -291,6 +327,22 @@ export const AdvisorHealth: React.FC = () => {
               ) : (
                 <p>{lastSuppressed.symbol} {lastSuppressed.action} · suppressed={lastSuppressed.suppressed_reason}</p>
               )}
+            </div>
+          )}
+
+          {state.ready && !runtimeReady && (
+            <div data-testid="edge-readiness-checks" className="mt-5 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+              <div className="mb-2 flex items-center gap-2 font-medium">
+                <AlertTriangle className="h-4 w-4" />
+                {readinessFailures.length} failing readiness checks
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(readinessChecks).map(([check, ok]) => (
+                  <span key={check} className={`rounded-full px-2 py-0.5 text-xs ${ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/15 text-red-200'}`}>
+                    {check}: {ok ? 'ok' : 'blocked'}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 

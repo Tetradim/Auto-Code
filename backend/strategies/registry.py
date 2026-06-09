@@ -17,7 +17,7 @@ Usage:
 """
 import logging
 from typing import Dict, List, Optional, Any, Type
-from datetime import datetime
+from datetime import datetime, time
 
 from backtest.engine import (
     BacktestConfig,
@@ -188,6 +188,184 @@ class PatternAwareSMAStrategy(PatternEnhancedStrategy):
         return signals
 
 
+class PuzzleKeyStrategy(BaseStrategy):
+    """Session-based day trading strategy for configurable stock/ETF symbols.
+
+    This is an original implementation inspired by public descriptions of a
+    two-session Euro strategy framework: an overnight reversal component and a
+    daytime trend-aligned pullback component. It does not encode proprietary
+    Kevin Davey parameters.
+    """
+
+    def __init__(
+        self,
+        config: BacktestConfig,
+        mode: str = "combined",
+        night_session: str = "18:00-07:00",
+        day_session: str = "07:00-15:00",
+        night_bar_minutes: int = 105,
+        day_bar_minutes: int = 60,
+        reversal_lookback: int = 3,
+        atr_period: int = 14,
+        atr_multiplier: float = 0.75,
+        trend_period: int = 20,
+        trade_direction: str = "both",
+        confidence_floor: float = 0.55,
+        no_new_entries_after: str = "",
+    ):
+        super().__init__(config)
+        self.mode = mode if mode in {"night", "day", "combined"} else "combined"
+        self.night_session = night_session
+        self.day_session = day_session
+        self.night_bar_minutes = max(1, int(night_bar_minutes))
+        self.day_bar_minutes = max(1, int(day_bar_minutes))
+        self.reversal_lookback = max(2, int(reversal_lookback))
+        self.atr_period = max(2, int(atr_period))
+        self.atr_multiplier = max(0.0, float(atr_multiplier))
+        self.trend_period = max(2, int(trend_period))
+        self.trade_direction = trade_direction if trade_direction in {"long", "short", "both"} else "both"
+        self.confidence_floor = min(1.0, max(0.0, float(confidence_floor)))
+        self.no_new_entries_after = no_new_entries_after
+        self._night_start, self._night_end = self._parse_session(night_session)
+        self._day_start, self._day_end = self._parse_session(day_session)
+
+    async def __call__(self, symbol: str, data) -> Any:
+        return await self.generate_signals(symbol, data)
+
+    async def generate_signals(self, symbol: str, data) -> Any:
+        df = data.copy()
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise RuntimeError("Puzzle Key Strategy requires pandas for signal generation") from exc
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.columns = [str(column).lower() for column in df.columns]
+        for required in ["open", "high", "low", "close"]:
+            if required not in df.columns:
+                raise ValueError(f"Missing '{required}' column in data for {symbol}")
+        if "volume" not in df.columns:
+            df["volume"] = 0
+
+        df["puzzle_atr"] = self._average_true_range(df)
+        df["avg_high"] = df["high"].shift(1).rolling(self.reversal_lookback).mean()
+        df["avg_low"] = df["low"].shift(1).rolling(self.reversal_lookback).mean()
+        df["trend_anchor"] = df["close"].shift(1)
+        df["trend_ma"] = df["close"].shift(1).rolling(self.trend_period).mean()
+        df["trend_slope"] = df["close"].shift(1) - df["close"].shift(self.trend_period)
+        df["signal"] = 0
+        df["confidence"] = 0.0
+        df["reason"] = "puzzle_key_waiting"
+
+        for idx in df.index:
+            session = self._session_for_index(idx)
+            if session is None:
+                df.at[idx, "reason"] = "puzzle_key_out_of_session"
+                continue
+            if self._entries_blocked_after(idx, session):
+                df.at[idx, "reason"] = "puzzle_key_entry_cutoff"
+                continue
+
+            row = df.loc[idx]
+            if self._missing_inputs(row):
+                df.at[idx, "reason"] = "puzzle_key_warmup"
+                continue
+
+            atr = float(row["puzzle_atr"])
+            lower_trigger = float(row["avg_low"]) - atr * self.atr_multiplier
+            upper_trigger = float(row["avg_high"]) + atr * self.atr_multiplier
+
+            if session == "night":
+                signal, reason, confidence = self._night_signal(row, lower_trigger, upper_trigger, atr)
+            else:
+                day_lower_trigger = float(row["avg_low"]) + atr * self.atr_multiplier
+                day_upper_trigger = float(row["avg_high"]) - atr * self.atr_multiplier
+                signal, reason, confidence = self._day_signal(row, day_lower_trigger, day_upper_trigger, atr)
+
+            df.at[idx, "signal"] = signal
+            df.at[idx, "confidence"] = confidence
+            df.at[idx, "reason"] = reason
+
+        return df[["open", "high", "low", "close", "volume", "signal", "confidence", "reason"]]
+
+    def _night_signal(self, row, lower_trigger: float, upper_trigger: float, atr: float):
+        close = float(row["close"])
+        if self.trade_direction in {"long", "both"} and close <= lower_trigger:
+            return 1, "puzzle_key_night_reversal_buy", self._confidence(close, lower_trigger, atr)
+        if self.trade_direction in {"short", "both"} and close >= upper_trigger:
+            return -1, "puzzle_key_night_reversal_sell", self._confidence(close, upper_trigger, atr)
+        return 0, "puzzle_key_night_no_trigger", 0.0
+
+    def _day_signal(self, row, lower_trigger: float, upper_trigger: float, atr: float):
+        close = float(row["close"])
+        trend_ma = float(row["trend_ma"])
+        trend_anchor = float(row["trend_anchor"])
+        trend_slope = float(row["trend_slope"])
+        trend_up = trend_anchor >= trend_ma and trend_slope >= 0
+        trend_down = trend_anchor <= trend_ma and trend_slope <= 0
+
+        if self.trade_direction in {"long", "both"} and trend_up and close <= lower_trigger:
+            return 1, "puzzle_key_day_trend_pullback_buy", self._confidence(close, lower_trigger, atr)
+        if self.trade_direction in {"short", "both"} and trend_down and close >= upper_trigger:
+            return -1, "puzzle_key_day_trend_pullback_sell", self._confidence(close, upper_trigger, atr)
+        return 0, "puzzle_key_day_no_trigger", 0.0
+
+    def _average_true_range(self, df):
+        previous_close = df["close"].shift(1)
+        true_range = df[["high", "low"]].assign(
+            high_close=(df["high"] - previous_close).abs(),
+            low_close=(df["low"] - previous_close).abs(),
+        )
+        true_range["range"] = true_range["high"] - true_range["low"]
+        return true_range[["range", "high_close", "low_close"]].max(axis=1).rolling(self.atr_period).mean()
+
+    def _session_for_index(self, idx) -> Optional[str]:
+        current = idx.time() if hasattr(idx, "time") else None
+        if current is None:
+            return None
+        if self.mode in {"night", "combined"} and self._in_session(current, self._night_start, self._night_end):
+            return "night"
+        if self.mode in {"day", "combined"} and self._in_session(current, self._day_start, self._day_end):
+            return "day"
+        return None
+
+    def _entries_blocked_after(self, idx, session: str) -> bool:
+        if session != "night" or not self.no_new_entries_after:
+            return False
+        cutoff = self._parse_time(self.no_new_entries_after)
+        current = idx.time() if hasattr(idx, "time") else None
+        return bool(current and current >= cutoff and current < self._night_end)
+
+    def _missing_inputs(self, row) -> bool:
+        inputs = [row["puzzle_atr"], row["avg_high"], row["avg_low"]]
+        if self._session_for_index(row.name) == "day":
+            inputs.extend([row["trend_anchor"], row["trend_ma"], row["trend_slope"]])
+        return any(value != value for value in inputs)
+
+    def _confidence(self, close: float, trigger: float, atr: float) -> float:
+        if atr <= 0:
+            return self.confidence_floor
+        distance = abs(close - trigger) / atr
+        return min(1.0, max(self.confidence_floor, self.confidence_floor + distance * 0.25))
+
+    @staticmethod
+    def _parse_session(value: str):
+        start, end = value.split("-", 1)
+        return PuzzleKeyStrategy._parse_time(start), PuzzleKeyStrategy._parse_time(end)
+
+    @staticmethod
+    def _parse_time(value: str) -> time:
+        hour, minute = value.strip().split(":", 1)
+        return time(hour=int(hour), minute=int(minute))
+
+    @staticmethod
+    def _in_session(current: time, start: time, end: time) -> bool:
+        if start <= end:
+            return start <= current < end
+        return current >= start or current < end
+
+
 # ============================================================================
 # Strategy Factory
 # ============================================================================
@@ -198,6 +376,7 @@ _STRATEGY_REGISTRY: Dict[str, Type[BaseStrategy]] = {
     "breakout": _Breakout,
     "rsi_with_patterns": PatternAwareRSIStrategy,
     "sma_with_patterns": PatternAwareSMAStrategy,
+    "puzzle_key_strategy": PuzzleKeyStrategy,
 }
 
 
@@ -247,6 +426,24 @@ class StrategyRegistry:
                 "pattern_mode": (str, "filter|boost|trigger", "filter")
             },
             "description": "SMA with chart pattern confirmation"
+        },
+        "puzzle_key_strategy": {
+            "class": PuzzleKeyStrategy,
+            "params": {
+                "mode": (str, "night|day|combined session mode", "combined"),
+                "night_session": (str, "Night session window in ET, HH:MM-HH:MM", "18:00-07:00"),
+                "day_session": (str, "Day session window in ET, HH:MM-HH:MM", "07:00-15:00"),
+                "night_bar_minutes": (int, "Night strategy bar length in minutes", 105),
+                "day_bar_minutes": (int, "Day strategy bar length in minutes", 60),
+                "reversal_lookback": (int, "Previous bars used for average high/low triggers", 3),
+                "atr_period": (int, "ATR lookback period", 14),
+                "atr_multiplier": (float, "ATR multiplier applied to reversal/pullback triggers", 0.75),
+                "trend_period": (int, "Trend moving-average period for day-session filter", 20),
+                "trade_direction": (str, "long|short|both", "both"),
+                "confidence_floor": (float, "Minimum confidence assigned to valid triggers", 0.55),
+                "no_new_entries_after": (str, "Optional night entry cutoff in HH:MM ET", "")
+            },
+            "description": "Puzzle Key Strategy: customizable session reversal and trend-pullback day trading package"
         }
     }
     

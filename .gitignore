@@ -16,6 +16,11 @@ dist-ssr
 __pycache__/
 *.py[cod]
 *$py.class
+.venv/
+backend/.venv/
+
+# Local verification artifacts
+test_reports/
 
 # Local runtime state
 /data/automation_settings.json

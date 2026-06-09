@@ -3,7 +3,7 @@ import { Globe, Clock, DollarSign } from 'lucide-react';
 import { MetricCard } from '../cards/MetricCard';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
 
 interface Market {
   code: string;
@@ -37,6 +37,7 @@ const INITIAL_MARKETS: Market[] = Object.entries(MARKET_META).map(([code, meta])
 export const MarketCoverage: React.FC = () => {
   const { setMarkets } = useStore();
   const [marketsList, setMarketsList] = useState<Market[]>(INITIAL_MARKETS);
+  const [marketStatusMessage, setMarketStatusMessage] = useState('Showing cached market session status.');
 
   useEffect(() => {
     loadMarkets();
@@ -61,8 +62,14 @@ export const MarketCoverage: React.FC = () => {
         minutes_to_close: status.minutes_to_close,
       }));
       setMarketsList(updated);
+      setMarketStatusMessage('Live market session status loaded.');
     } catch (error) {
-      console.error('Failed to load markets:', error);
+      if (isFrontendFallbackApiError(error)) {
+        setMarketStatusMessage('Backend API unavailable; showing cached market session status.');
+      } else {
+        setMarketStatusMessage('Market session status failed to refresh. Check backend API connectivity.');
+        console.error('Failed to load markets:', error);
+      }
     }
   };
 
@@ -98,6 +105,9 @@ export const MarketCoverage: React.FC = () => {
 
   return (
     <div className="space-y-6" data-testid="market-coverage">
+      <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-sm text-gray-300" aria-live="polite">
+        {marketStatusMessage}
+      </div>
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
@@ -217,3 +227,15 @@ export const MarketCoverage: React.FC = () => {
     </div>
   );
 };
+
+function isFrontendFallbackApiError(error: unknown) {
+  if (!(error instanceof ApiError)) return false;
+  const detail = error.detail;
+  return Boolean(
+    detail &&
+    typeof detail === 'object' &&
+    'error' in detail &&
+    typeof detail.error === 'string' &&
+    detail.error.includes('Expected JSON response')
+  );
+}

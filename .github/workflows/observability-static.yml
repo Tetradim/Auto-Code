@@ -1,0 +1,74 @@
+name: Observability Static Checks
+
+on:
+  push:
+    branches: [consolidated, OC-Iteration]
+    paths:
+      - 'backend/tests/test_*static.py'
+      - 'docs/runbooks/**'
+      - 'grafana/dashboards/**'
+      - 'prometheus/**'
+      - '.github/workflows/observability-static.yml'
+  pull_request:
+    paths:
+      - 'backend/tests/test_*static.py'
+      - 'docs/runbooks/**'
+      - 'grafana/dashboards/**'
+      - 'prometheus/**'
+      - '.github/workflows/observability-static.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-observability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run static observability tests
+        run: python -m unittest discover -s backend/tests -p "test_*static.py"
+
+      - name: Validate Grafana dashboard JSON
+        run: |
+          python -m json.tool grafana/dashboards/broker_health.json > /dev/null
+          python -m json.tool grafana/dashboards/frontend-experience.json > /dev/null
+
+      - name: Validate Prometheus config and rules
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool \
+            prom/prometheus:latest \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool \
+            prom/prometheus:latest \
+            check rules /etc/prometheus/rules.yml /etc/prometheus/alerts/sentinel_edge_rules.yml
+
+      - name: Validate Alertmanager config
+        run: |
+          cp prometheus/alertmanager.yml /tmp/alertmanager.yml
+          sed -i \
+            -e 's|$WEBHOOK_SECRET|dummy-webhook-secret|g' \
+            -e 's|$SLACK_WEBHOOK_URL|https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXXXXXXXXXX|g' \
+            -e 's|$TELEGRAM_BOT_TOKEN|123456:dummy-token|g' \
+            -e 's|$TELEGRAM_TRADING_CHAT|123456789|g' \
+            -e 's|$ALERTMANAGER_AUTH|dummy-alertmanager-auth|g' \
+            /tmp/alertmanager.yml
+          docker run --rm \
+            -v "/tmp/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            --entrypoint amtool \
+            prom/alertmanager:latest \
+            check-config /etc/alertmanager/alertmanager.yml
